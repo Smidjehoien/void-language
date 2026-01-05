@@ -26,7 +26,14 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 // ${DARK_TRIAD_PERSONALITY.join(', ')}
 
 
-const cliArgs = parseCliArgs(process.argv)
+let cliArgs
+try {
+  cliArgs = parseCliArgs(process.argv)
+} catch (err) {
+  console.error(err?.message ?? String(err))
+  console.error('Use --help to see usage.')
+  process.exit(1)
+}
 
 if (cliArgs.pack && cliArgs.packFile) {
   console.error('Note: --pack-file overrides --pack.')
@@ -89,7 +96,7 @@ const addAssistantMessage = (content) => {
 }
 
 export const codeFromPrompt = async (prompt) => {
-  addUserMessage(`${prompt}`)
+  addUserMessage(prompt)
 
   const completion = await openai.createChatCompletion({
     model: 'gpt-3.5-turbo',
@@ -118,9 +125,8 @@ const getUserInput = (prompt) => {
 
         getUserInput(INPUT_PROMPT)
       }).catch(err => {
-        console.error(err?.message ?? String(err))
-        rl.close()
-        process.exit(1)
+        console.error(`Error talking to the model: ${err?.message ?? String(err)}`)
+        getUserInput(INPUT_PROMPT)
       })
     }
   })

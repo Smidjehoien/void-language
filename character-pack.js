@@ -11,12 +11,18 @@ const getPackDirPath = () => {
   return path.join(path.dirname(currentFilePath), 'character-packs')
 }
 
-const isHttpUrl = (value) => {
+const getHttpUrlProtocol = (value) => {
   try {
     const url = new URL(value)
-    return url.protocol === 'https:' || url.protocol === 'http:'
+    if (url.protocol === 'https:' || url.protocol === 'http:') {
+      return url.protocol
+    }
+    return null
   } catch {
-    return false
+    if (typeof value === 'string' && value.includes('://')) {
+      throw new Error(`Invalid pack URL: ${value}`)
+    }
+    return null
   }
 }
 
@@ -106,6 +112,14 @@ const validatePack = (pack) => {
   return pack
 }
 
+const validatePackWithSource = (pack, sourceLabel) => {
+  try {
+    return validatePack(pack)
+  } catch (err) {
+    throw new Error(`${err?.message ?? String(err)} (source: ${sourceLabel})`)
+  }
+}
+
 const resolveNamedPackPath = async (packName) => {
   const packDirPath = getPackDirPath()
 
@@ -134,7 +148,7 @@ const loadPackByName = async (packName) => {
     sourceLabel: resolvedPath,
     fileExtension,
   })
-  return validatePack(parsed)
+  return validatePackWithSource(parsed, resolvedPath)
 }
 
 const getFileExtension = (filePathOrUrl) => {
@@ -154,14 +168,22 @@ const loadLocalPackByPath = async (packFilePath) => {
     )
   }
 
-  const text = await fs.readFile(resolvedPath, 'utf8')
+  let text
+  try {
+    text = await fs.readFile(resolvedPath, 'utf8')
+  } catch (err) {
+    if (err?.code === 'ENOENT') {
+      throw new Error(`Pack file not found: ${resolvedPath}`)
+    }
+    throw err
+  }
   const pack = parsePackText({
     text,
     sourceLabel: resolvedPath,
     fileExtension,
   })
 
-  return validatePack(pack)
+  return validatePackWithSource(pack, resolvedPath)
 }
 
 const readResponseBodyWithLimit = async ({ response, sourceLabel, maxBytes }) => {
@@ -275,7 +297,7 @@ const loadRemotePackByUrl = async (packFileUrl) => {
     fileExtension,
   })
 
-  return validatePack(pack)
+  return validatePackWithSource(pack, packFileUrl)
 }
 
 export const parseCliArgs = (argv) => {
@@ -380,7 +402,11 @@ You MUST only respond in the following format using the above emotions, actions 
 
 export const loadCharacterPack = async ({ pack, packFile }) => {
   if (packFile) {
-    if (isHttpUrl(packFile)) {
+    const protocol = getHttpUrlProtocol(packFile)
+    if (protocol === 'http:') {
+      throw new Error('Remote pack URLs must use HTTPS.')
+    }
+    if (protocol === 'https:') {
       return loadRemotePackByUrl(packFile)
     }
     return loadLocalPackByPath(packFile)
