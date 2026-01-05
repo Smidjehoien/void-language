@@ -28,6 +28,10 @@ const OPENAI_API_KEY = 'YOUR_API_KEY'
 
 const cliArgs = parseCliArgs(process.argv)
 
+if (cliArgs.pack && cliArgs.packFile) {
+  console.error('Note: --pack-file overrides --pack.')
+}
+
 if (cliArgs.help) {
   console.log(`Usage:
   bun index.js
@@ -97,6 +101,10 @@ const getUserInput = (prompt) => {
         console.log(`${characterName}: ${response.content}`)
         chatHistory.push({ role: 'assistant', content: response.content })
         getUserInput(INPUT_PROMPT)
+      }).catch(err => {
+        console.error(err?.message ?? String(err))
+        rl.close()
+        process.exit(1)
       })
     }
   })

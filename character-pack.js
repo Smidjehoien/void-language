@@ -170,9 +170,10 @@ const loadRemotePackByUrl = async (packFileUrl) => {
   }
 
   const contentLength = response.headers.get('content-length')
-  if (contentLength && Number(contentLength) > MAX_REMOTE_PACK_BYTES) {
+  const contentLengthNumber = Number(contentLength)
+  if (Number.isFinite(contentLengthNumber) && contentLengthNumber > MAX_REMOTE_PACK_BYTES) {
     throw new Error(
-      `Remote pack is too large (${contentLength} bytes). Max allowed: ${MAX_REMOTE_PACK_BYTES} bytes.`
+      `Remote pack is too large (${contentLengthNumber} bytes). Max allowed: ${MAX_REMOTE_PACK_BYTES} bytes.`
     )
   }
 
