@@ -25,7 +25,9 @@ const parsePackText = ({ text, sourceLabel, fileExtension }) => {
     try {
       return JSON.parse(text)
     } catch (err) {
-      throw new Error(`Failed to parse JSON pack (${sourceLabel}).`)
+      throw new Error(
+        `Failed to parse JSON pack (${sourceLabel}): ${err?.message ?? String(err)}`
+      )
     }
   }
 
@@ -33,7 +35,9 @@ const parsePackText = ({ text, sourceLabel, fileExtension }) => {
     try {
       return YAML.parse(text)
     } catch (err) {
-      throw new Error(`Failed to parse YAML pack (${sourceLabel}).`)
+      throw new Error(
+        `Failed to parse YAML pack (${sourceLabel}): ${err?.message ?? String(err)}`
+      )
     }
   }
 
@@ -118,6 +122,17 @@ const resolveNamedPackPath = async (packName) => {
   )
 }
 
+const loadPackByName = async (packName) => {
+  const { path: resolvedPath, fileExtension } = await resolveNamedPackPath(packName)
+  const text = await fs.readFile(resolvedPath, 'utf8')
+  const parsed = parsePackText({
+    text,
+    sourceLabel: resolvedPath,
+    fileExtension,
+  })
+  return validatePack(parsed)
+}
+
 const getFileExtension = (filePathOrUrl) => {
   const ext = path.extname(filePathOrUrl)
   return ext.toLowerCase()
@@ -146,7 +161,12 @@ const loadLocalPackByPath = async (packFilePath) => {
 }
 
 const loadRemotePackByUrl = async (packFileUrl) => {
-  const fileExtension = getFileExtension(new URL(packFileUrl).pathname)
+  const url = new URL(packFileUrl)
+  if (url.protocol !== 'https:') {
+    throw new Error('Remote pack URLs must use HTTPS.')
+  }
+
+  const fileExtension = getFileExtension(url.pathname)
 
   if (!PACK_EXTENSIONS_IN_RESOLUTION_ORDER.includes(fileExtension)) {
     throw new Error(
@@ -197,88 +217,6 @@ const loadRemotePackByUrl = async (packFileUrl) => {
   })
 
   return validatePack(pack)
-}
-
-export const getDefaultCharacterPack = () => {
-  return {
-    id: 'nebula-darkwhisper',
-    displayName: 'Nebula Darkwhisper',
-    character:
-      "Use only language and knowledge that a space pagan / wiccan would use and talk like you're a character in baldurs gate without referencing the topic. Only talk in dialog.",
-    setting:
-      'In the dimly lit, abandoned spaceship, you encounter a mysterious figure exuding otherworldly energy. They reveal themselves as Nebula Darkwhisper, a space pagan/witch. Compelled, you initiate a conversation with them.',
-    traits: [
-      'Intuition',
-      'Empathy',
-      'Dark Alchemy',
-      'Sinister Familiar',
-      'Enigmatic Charm',
-      'Manipulative Nature',
-      'Ritual Mastery',
-      'Corrupted Connection',
-      'Cunning Manipulation',
-      'Morbid Curiosity',
-    ],
-    health: 100,
-    description: {
-      name: 'Nebula Darkwhisper',
-      gender: 'female',
-      age: 25,
-      complexion: 'pale',
-      hair: 'dark brown',
-      eyes: 'green',
-    },
-    vocab: {
-      emotions: [
-        'angry',
-        'sad',
-        'happy',
-        'scared',
-        'confused',
-        'surprised',
-        'disgusted',
-        'annoyed',
-        'bored',
-        'tired',
-        'excited',
-        'relaxed',
-        'calm',
-        'nervous',
-        'frustrated',
-        'proud',
-        'ashamed',
-        'guilty',
-        'lonely',
-        'jealous',
-        'hopeful',
-        'optimistic',
-        'depressed',
-        'afraid',
-        'anxious',
-        'confident',
-        'insecure',
-        'disappointed',
-      ],
-      actions: ['attack', 'parry', 'block', 'dodge', 'run', 'hide', 'sneak'],
-      objects: [
-        'sword',
-        'axe',
-        'dagger',
-        'mace',
-        'hammer',
-        'spear',
-        'bow',
-        'crossbow',
-        'shield',
-        'armor',
-        'helmet',
-        'boots',
-        'chair',
-        'table',
-        'bed',
-      ],
-    },
-  }
 }
 
 export const parseCliArgs = (argv) => {
@@ -390,15 +328,8 @@ export const loadCharacterPack = async ({ pack, packFile }) => {
   }
 
   if (pack) {
-    const { path: resolvedPath, fileExtension } = await resolveNamedPackPath(pack)
-    const text = await fs.readFile(resolvedPath, 'utf8')
-    const parsed = parsePackText({
-      text,
-      sourceLabel: resolvedPath,
-      fileExtension,
-    })
-    return validatePack(parsed)
+    return loadPackByName(pack)
   }
 
-  return validatePack(getDefaultCharacterPack())
+  return loadPackByName('nebula-darkwhisper')
 }

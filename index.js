@@ -2,7 +2,7 @@ import readline from 'readline'
 import { Configuration, OpenAIApi } from 'openai'
 import { buildLanguageSpecFromPack, loadCharacterPack, parseCliArgs } from './character-pack.js'
 
-const OPENAI_API_KEY = 'YOUR_API_KEY'
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
 // const OCEAN_PERSONALITY = [  
 //   'openness: 0.8',
@@ -40,7 +40,7 @@ if (cliArgs.help) {
 
 Notes:
   - --pack resolves: character-packs/<name>.json -> .yaml -> .yml
-  - --pack-file supports local files and http(s) URLs
+  - --pack-file supports local files and https URLs
   - --pack-file overrides --pack`)
   process.exit(0)
 }
@@ -55,6 +55,11 @@ try {
 
 const languageSpec = buildLanguageSpecFromPack(pack)
 const characterName = pack.description?.name ?? pack.displayName
+
+if (!OPENAI_API_KEY) {
+  console.error('Missing OPENAI_API_KEY environment variable.')
+  process.exit(1)
+}
 
 const configuration = new Configuration({
   apiKey: OPENAI_API_KEY,
