@@ -68,6 +68,7 @@ const configuration = new Configuration({
 const openai = new OpenAIApi(configuration)
 
 const chatHistory = []
+const MAX_CHAT_HISTORY_MESSAGES = 12
 
 export const codeFromPrompt = async (prompt) => {
   const _prompt = prompt
@@ -75,9 +76,7 @@ export const codeFromPrompt = async (prompt) => {
   chatHistory.push({ role: 'system', content: `${languageSpec}` })
   chatHistory.push({ role: 'user', content: `${_prompt}` })
 
-  if (chatHistory.length > 12) {
-    chatHistory.shift()
-    chatHistory.shift()
+  while (chatHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
     chatHistory.shift()
   }
 

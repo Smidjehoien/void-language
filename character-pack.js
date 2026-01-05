@@ -160,6 +160,59 @@ const loadLocalPackByPath = async (packFilePath) => {
   return validatePack(pack)
 }
 
+const readResponseBodyWithLimit = async ({ response, sourceLabel, maxBytes }) => {
+  const reader = response.body?.getReader?.()
+
+  if (!reader) {
+    let data
+    try {
+      data = new Uint8Array(await response.arrayBuffer())
+    } catch (err) {
+      throw new Error(`Failed to read pack response body from ${sourceLabel}.`)
+    }
+    if (data.byteLength > maxBytes) {
+      throw new Error(
+        `Remote pack is too large (${data.byteLength} bytes). Max allowed: ${maxBytes} bytes.`
+      )
+    }
+    return data
+  }
+
+  const chunks = []
+  let totalBytes = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) {
+      break
+    }
+
+    totalBytes += value.byteLength
+    if (totalBytes > maxBytes) {
+      try {
+        await reader.cancel()
+      } catch {
+        // ignore
+      }
+
+      throw new Error(
+        `Remote pack is too large (${totalBytes} bytes). Max allowed: ${maxBytes} bytes.`
+      )
+    }
+
+    chunks.push(value)
+  }
+
+  const data = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    data.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return data
+}
+
 const loadRemotePackByUrl = async (packFileUrl) => {
   const url = new URL(packFileUrl)
   if (url.protocol !== 'https:') {
@@ -197,17 +250,11 @@ const loadRemotePackByUrl = async (packFileUrl) => {
     )
   }
 
-  let data
-  try {
-    data = new Uint8Array(await response.arrayBuffer())
-  } catch (err) {
-    throw new Error(`Failed to read pack response body from ${packFileUrl}.`)
-  }
-  if (data.byteLength > MAX_REMOTE_PACK_BYTES) {
-    throw new Error(
-      `Remote pack is too large (${data.byteLength} bytes). Max allowed: ${MAX_REMOTE_PACK_BYTES} bytes.`
-    )
-  }
+  const data = await readResponseBodyWithLimit({
+    response,
+    sourceLabel: packFileUrl,
+    maxBytes: MAX_REMOTE_PACK_BYTES,
+  })
 
   const text = new TextDecoder().decode(data)
   const pack = parsePackText({
