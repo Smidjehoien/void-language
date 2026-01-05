@@ -72,12 +72,24 @@ const openai = new OpenAIApi(configuration)
 const chatHistory = []
 const MAX_CHAT_HISTORY_MESSAGES = 12
 
-export const codeFromPrompt = async (prompt) => {
-  chatHistory.push({ role: 'user', content: `${prompt}` })
-
+const trimChatHistory = () => {
   while (chatHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
     chatHistory.shift()
   }
+}
+
+const addUserMessage = (content) => {
+  chatHistory.push({ role: 'user', content })
+  trimChatHistory()
+}
+
+const addAssistantMessage = (content) => {
+  chatHistory.push({ role: 'assistant', content })
+  trimChatHistory()
+}
+
+export const codeFromPrompt = async (prompt) => {
+  addUserMessage(`${prompt}`)
 
   const completion = await openai.createChatCompletion({
     model: 'gpt-3.5-turbo',
@@ -102,11 +114,7 @@ const getUserInput = (prompt) => {
     } else {
       codeFromPrompt(input).then(response => {
         console.log(`${characterName}: ${response.content}`)
-        chatHistory.push({ role: 'assistant', content: response.content })
-
-        while (chatHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
-          chatHistory.shift()
-        }
+        addAssistantMessage(response.content)
 
         getUserInput(INPUT_PROMPT)
       }).catch(err => {
