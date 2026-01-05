@@ -61,9 +61,13 @@ const expectNumber = (value, label) => {
 }
 
 const expectStringArray = (value, label) => {
-  if (!Array.isArray(value) || value.some((v) => typeof v !== 'string' || v.length === 0)) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((v) => typeof v !== 'string' || v.length === 0)
+  ) {
     throw new Error(
-      `Pack validation failed: ${label} must be an array of non-empty strings.`
+      `Pack validation failed: ${label} must be a non-empty array of non-empty strings.`
     )
   }
 }
@@ -229,11 +233,19 @@ const loadRemotePackByUrl = async (packFileUrl) => {
     )
   }
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10_000)
+
   let response
   try {
-    response = await fetch(packFileUrl)
+    response = await fetch(packFileUrl, { signal: controller.signal })
   } catch (err) {
-    throw new Error(`Failed to fetch pack from ${packFileUrl}.`)
+    if (err?.name === 'AbortError') {
+      throw new Error(`Timed out fetching pack from ${packFileUrl}.`)
+    }
+    throw new Error(`Failed to fetch pack from ${packFileUrl}: ${err?.message ?? String(err)}`)
+  } finally {
+    clearTimeout(timeout)
   }
 
   if (!response.ok) {
