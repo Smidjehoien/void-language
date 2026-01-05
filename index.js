@@ -45,6 +45,13 @@ Notes:
   process.exit(0)
 }
 
+if (!OPENAI_API_KEY) {
+  console.error(
+    'Missing OPENAI_API_KEY environment variable. Example: OPENAI_API_KEY=... bun index.js'
+  )
+  process.exit(1)
+}
+
 let pack
 try {
   pack = await loadCharacterPack(cliArgs)
@@ -56,11 +63,6 @@ try {
 const languageSpec = buildLanguageSpecFromPack(pack)
 const characterName = pack.description?.name ?? pack.displayName
 
-if (!OPENAI_API_KEY) {
-  console.error('Missing OPENAI_API_KEY environment variable.')
-  process.exit(1)
-}
-
 const configuration = new Configuration({
   apiKey: OPENAI_API_KEY,
 })
@@ -71,10 +73,7 @@ const chatHistory = []
 const MAX_CHAT_HISTORY_MESSAGES = 12
 
 export const codeFromPrompt = async (prompt) => {
-  const _prompt = prompt
-
-  chatHistory.push({ role: 'system', content: `${languageSpec}` })
-  chatHistory.push({ role: 'user', content: `${_prompt}` })
+  chatHistory.push({ role: 'user', content: `${prompt}` })
 
   while (chatHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
     chatHistory.shift()
@@ -82,7 +81,7 @@ export const codeFromPrompt = async (prompt) => {
 
   const completion = await openai.createChatCompletion({
     model: 'gpt-3.5-turbo',
-    messages: [...chatHistory],
+    messages: [{ role: 'system', content: `${languageSpec}` }, ...chatHistory],
   })
 
   return completion.data.choices[0].message
@@ -104,6 +103,11 @@ const getUserInput = (prompt) => {
       codeFromPrompt(input).then(response => {
         console.log(`${characterName}: ${response.content}`)
         chatHistory.push({ role: 'assistant', content: response.content })
+
+        while (chatHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
+          chatHistory.shift()
+        }
+
         getUserInput(INPUT_PROMPT)
       }).catch(err => {
         console.error(err?.message ?? String(err))

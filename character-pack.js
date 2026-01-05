@@ -55,8 +55,8 @@ const expectString = (value, label) => {
 }
 
 const expectNumber = (value, label) => {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    throw new Error(`Pack validation failed: ${label} must be a number.`)
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Pack validation failed: ${label} must be a finite number.`)
   }
 }
 
