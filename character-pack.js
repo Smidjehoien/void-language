@@ -156,9 +156,17 @@ const loadRemotePackByUrl = async (packFileUrl) => {
     )
   }
 
-  const response = await fetch(packFileUrl)
+  let response
+  try {
+    response = await fetch(packFileUrl)
+  } catch (err) {
+    throw new Error(`Failed to fetch pack from ${packFileUrl}.`)
+  }
+
   if (!response.ok) {
-    throw new Error(`Failed to fetch pack (${response.status} ${response.statusText}).`)
+    throw new Error(
+      `Failed to fetch pack from ${packFileUrl} (${response.status} ${response.statusText}).`
+    )
   }
 
   const contentLength = response.headers.get('content-length')
@@ -168,7 +176,12 @@ const loadRemotePackByUrl = async (packFileUrl) => {
     )
   }
 
-  const data = new Uint8Array(await response.arrayBuffer())
+  let data
+  try {
+    data = new Uint8Array(await response.arrayBuffer())
+  } catch (err) {
+    throw new Error(`Failed to read pack response body from ${packFileUrl}.`)
+  }
   if (data.byteLength > MAX_REMOTE_PACK_BYTES) {
     throw new Error(
       `Remote pack is too large (${data.byteLength} bytes). Max allowed: ${MAX_REMOTE_PACK_BYTES} bytes.`
@@ -283,24 +296,40 @@ export const parseCliArgs = (argv) => {
     }
 
     if (arg === '--pack') {
-      args.pack = argv[i + 1] ?? null
+      const value = argv[i + 1]
+      if (!value || value.startsWith('-')) {
+        throw new Error('Missing value for --pack; expected a pack name.')
+      }
+      args.pack = value
       i++
       continue
     }
 
     if (arg.startsWith('--pack=')) {
-      args.pack = arg.slice('--pack='.length)
+      const value = arg.slice('--pack='.length)
+      if (!value) {
+        throw new Error('Missing value for --pack; expected a pack name.')
+      }
+      args.pack = value
       continue
     }
 
     if (arg === '--pack-file') {
-      args.packFile = argv[i + 1] ?? null
+      const value = argv[i + 1]
+      if (!value || value.startsWith('-')) {
+        throw new Error('Missing value for --pack-file; expected a path or URL.')
+      }
+      args.packFile = value
       i++
       continue
     }
 
     if (arg.startsWith('--pack-file=')) {
-      args.packFile = arg.slice('--pack-file='.length)
+      const value = arg.slice('--pack-file='.length)
+      if (!value) {
+        throw new Error('Missing value for --pack-file; expected a path or URL.')
+      }
+      args.packFile = value
       continue
     }
 

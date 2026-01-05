@@ -94,7 +94,7 @@ const getUserInput = (prompt) => {
       rl.close()
     } else {
       codeFromPrompt(input).then(response => {
-        console.log(`${characterName}: `, response.content)
+        console.log(`${characterName}: ${response.content}`)
         chatHistory.push({ role: 'assistant', content: response.content })
         getUserInput(INPUT_PROMPT)
       })
