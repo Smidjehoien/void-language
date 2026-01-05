@@ -1,69 +1,8 @@
 import readline from 'readline'
 import { Configuration, OpenAIApi } from 'openai'
+import { buildLanguageSpecFromPack, loadCharacterPack, parseCliArgs } from './character-pack.js'
 
-const OPENAI_API_KEY = 'YOUR_API_KEY'
-
-const ACTIONS = [
-  'attack',
-  'parry',
-  'block',
-  'dodge',
-  'run',
-  'hide',
-  'sneak',
-]
-
-const EMOTIONS = [
-  'angry',
-  'sad',
-  'happy',
-  'scared',
-  'confused',
-  'surprised',
-  'disgusted',
-  'annoyed',
-  'bored',
-  'tired',
-  'excited',
-  'relaxed',
-  'calm',
-  'nervous',
-  'frustrated',
-  'proud',
-  'ashamed',
-  'guilty',
-  'lonely',
-  'jealous',
-  'hopeful',
-  'optimistic',
-  'depressed',
-  'afraid',
-  'anxious',
-  'confident',
-  'insecure',
-  'disappointed',
-]
-
-const OBJECTS = [
-  'sword',
-  'axe',
-  'dagger',
-  'mace',
-  'hammer',
-  'spear',
-  'bow',
-  'crossbow',
-  'shield',
-  'armor',
-  'helmet',
-  'boots',
-  'chair',
-  'table',
-  'bed',
-]
-
-const CHARACTER = `Use only language and knowledge that a space pagan / wiccan would use and talk like you're a character in baldurs gate without referencing the topic. Only talk in dialog.`
-const SETTING = `In the dimly lit, abandoned spaceship, you encounter a mysterious figure exuding otherworldly energy. They reveal themselves as Nebula Darkwhisper, a space pagan/witch. Compelled, you initiate a conversation with them.`
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim()
 
 // const OCEAN_PERSONALITY = [  
 //   'openness: 0.8',
@@ -86,48 +25,50 @@ const SETTING = `In the dimly lit, abandoned spaceship, you encounter a mysterio
 // Dark Triad Personality:
 // ${DARK_TRIAD_PERSONALITY.join(', ')}
 
-const TRAITS = 'Intuition, Empathy, Dark Alchemy, Sinister Familiar, Enigmatic Charm, Manipulative Nature, Ritual Mastery, Corrupted Connection, Cunning Manipulation, Morbid Curiosity'
 
-const HEALTH = '100'
+let cliArgs
+try {
+  cliArgs = parseCliArgs(process.argv)
+} catch (err) {
+  console.error(err?.message ?? String(err))
+  console.error('Use --help to see usage.')
+  process.exit(1)
+}
 
-const DESCRIPTION = [
-  'name: Nebula Darkwhisper',
-  'gender: female',
-  'age: 25',
-  'complexion: pale',
-  'hair: dark brown',
-  'eyes: green',
-]
+if (cliArgs.pack && cliArgs.packFile) {
+  console.error('Note: --pack-file overrides --pack.')
+}
 
-const languageSpec = `
-This is your character description:
-${CHARACTER}
+if (cliArgs.help) {
+  console.log(`Usage:
+  bun index.js
+  bun index.js --pack <name>
+  bun index.js --pack-file <path-or-url>
 
-${DESCRIPTION.join(', ')}
+Notes:
+  - --pack resolves: character-packs/<name>.json -> .yaml -> .yml
+  - --pack-file supports local files and https URLs
+  - --pack-file overrides --pack`)
+  process.exit(0)
+}
 
-This is your character traits:
-${TRAITS}
+if (!OPENAI_API_KEY) {
+  console.error(
+    'Missing OPENAI_API_KEY environment variable. Example: OPENAI_API_KEY=... bun index.js'
+  )
+  process.exit(1)
+}
 
-SHOULD ATTACK WHEN PROVOKED.
-SHOULD ATTACK WHEN ADVANTAGEOUS.
-HEALTH SHOULD REDUCE WHEN ATTACKED AND INFLUENCE BEHAVIOUR.
+let pack
+try {
+  pack = await loadCharacterPack(cliArgs)
+} catch (err) {
+  console.error(err?.message ?? String(err))
+  process.exit(1)
+}
 
-This is the setting:
-${SETTING}
-
-This is the available emotions, actions & objects:
-
-Emotions:
-${EMOTIONS.join(', ')}
-
-Actions:
-${ACTIONS.join(', ')}
-
-Objects:
-${OBJECTS.join(', ')}
-You MUST only respond in the following format using the above emotions, actions & objects, they should influence your dialog.
-[emotions][actions][objects][health] dialog
-`
+const languageSpec = buildLanguageSpecFromPack(pack)
+const characterName = pack.description?.name ?? pack.displayName
 
 const configuration = new Configuration({
   apiKey: OPENAI_API_KEY,
@@ -136,22 +77,30 @@ const configuration = new Configuration({
 const openai = new OpenAIApi(configuration)
 
 const chatHistory = []
+const MAX_CHAT_HISTORY_MESSAGES = 12
 
-export const codeFromPrompt = async (prompt) => {
-  const _prompt = prompt
-
-  chatHistory.push({ role: 'system', content: `${languageSpec}` })
-  chatHistory.push({ role: 'user', content: `${_prompt}` })
-
-  if (chatHistory.length > 12) {
-    chatHistory.shift()
-    chatHistory.shift()
+const trimChatHistory = () => {
+  while (chatHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
     chatHistory.shift()
   }
+}
+
+const addUserMessage = (content) => {
+  chatHistory.push({ role: 'user', content })
+  trimChatHistory()
+}
+
+const addAssistantMessage = (content) => {
+  chatHistory.push({ role: 'assistant', content })
+  trimChatHistory()
+}
+
+export const codeFromPrompt = async (prompt) => {
+  addUserMessage(prompt)
 
   const completion = await openai.createChatCompletion({
     model: 'gpt-3.5-turbo',
-    messages: [...chatHistory],
+    messages: [{ role: 'system', content: `${languageSpec}` }, ...chatHistory],
   })
 
   return completion.data.choices[0].message
@@ -162,7 +111,7 @@ const rl = readline.createInterface({
   output: process.stdout,
 })
 
-const INITIAL_PROMPT = `In the dimly lit, abandoned spaceship, you encounter a mysterious figure exuding otherworldly energy. They reveal themselves as Nebula Darkwhisper, a space pagan/witch. Compelled, you initiate a conversation with them. \n\nYou: `
+const INITIAL_PROMPT = `${pack.setting} \n\nYou: `
 const INPUT_PROMPT = 'You say: '
 
 const getUserInput = (prompt) => {
@@ -171,8 +120,12 @@ const getUserInput = (prompt) => {
       rl.close()
     } else {
       codeFromPrompt(input).then(response => {
-        console.log('Nebula Darkwhisper: ', response.content)
-        chatHistory.push({ role: 'assistant', content: response.content })
+        console.log(`${characterName}: ${response.content}`)
+        addAssistantMessage(response.content)
+
+        getUserInput(INPUT_PROMPT)
+      }).catch(err => {
+        console.error(`Error talking to the model: ${err?.message ?? String(err)}`)
         getUserInput(INPUT_PROMPT)
       })
     }
