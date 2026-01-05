@@ -89,6 +89,9 @@ const validatePack = (pack) => {
   expectString(pack.setting, 'setting')
   expectStringArray(pack.traits, 'traits')
   expectNumber(pack.health, 'health')
+  if (pack.health < 0 || pack.health > 1000) {
+    throw new Error('Pack validation failed: health must be between 0 and 1000.')
+  }
 
   if (!pack.description || typeof pack.description !== 'object') {
     throw new Error('Pack validation failed: description must be an object.')

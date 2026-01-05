@@ -2,7 +2,7 @@ import readline from 'readline'
 import { Configuration, OpenAIApi } from 'openai'
 import { buildLanguageSpecFromPack, loadCharacterPack, parseCliArgs } from './character-pack.js'
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim()
 
 // const OCEAN_PERSONALITY = [  
 //   'openness: 0.8',
