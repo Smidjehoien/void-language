@@ -2,6 +2,7 @@ name: CLA marker
 on:
   pull_request_target:
     # Needs to label PRs from forks (requires base-repo write perms).
+    # Security: the called workflow must remain metadata-only (no PR code checkout / execution).
     types: [opened, reopened, synchronize, edited, ready_for_review]
 
 permissions:
@@ -19,5 +20,6 @@ jobs:
       cover_org_members: true
       cover_collaborators: false
       # Users covered by policy (maintainers / automation). Keep this in sync with org policy.
+      # Format: comma-separated GitHub usernames with no spaces.
       allowlist_users: 'cosmicjesterx,charliehelps,charliecreates[bot]'
       create_missing_labels: true
