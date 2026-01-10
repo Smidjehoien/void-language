@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   cla:
+    # The reusable workflow is intended to be metadata-only (labels/comments), with no PR code checkout.
     uses: Smidjehoien/.github/.github/workflows/cla-mark.yml@main
     with:
       cover_org_members: true
@@ -18,5 +19,5 @@ jobs:
       # Users covered by policy (maintainers / automation).
       # humans: cosmicjesterx
       # bots: charliehelps, charliecreates[bot]
-      allowlist_users: 'cosmicjesterx, charliehelps, charliecreates[bot]'
+      allowlist_users: 'cosmicjesterx,charliehelps,charliecreates[bot]'
       create_missing_labels: true
