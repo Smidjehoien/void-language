@@ -4,7 +4,7 @@ on:
     # Needs to label PRs from forks (requires base-repo write perms).
     # Security: the called workflow must remain metadata-only (no PR code checkout / execution).
     # Before bumping the pinned SHA below, confirm the called workflow has no `actions/checkout` or shell steps.
-    types: [opened, reopened, synchronize, edited, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
   contents: read
