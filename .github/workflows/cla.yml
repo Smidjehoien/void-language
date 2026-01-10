@@ -14,5 +14,6 @@ jobs:
     with:
       cover_org_members: true
       cover_collaborators: false
-      allowlist_users: 'cosmicjesterx charliehelps charliecreates[bot]'
+      # Users covered by policy (maintainers / automation).
+      allowlist_users: 'cosmicjesterx, charliehelps, charliecreates[bot]'
       create_missing_labels: true
