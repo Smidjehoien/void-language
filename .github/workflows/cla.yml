@@ -21,7 +21,7 @@ jobs:
     uses: Smidjehoien/.github/.github/workflows/cla-mark.yml@984cf2944d68fc095d136e198b16aff70a50c3ac
     with:
       cover_org_members: true
-      cover_collaborators: false
+      cover_collaborators: true
       # Users covered by policy (maintainers / automation). Keep this in sync with org policy.
       # Update this list whenever maintainer/automation accounts change.
       # Format: comma-separated GitHub usernames with no spaces.
