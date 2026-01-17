@@ -1,0 +1,29 @@
+name: CLA marker
+on:
+  pull_request_target:
+    # Needs to label PRs from forks (requires base-repo write perms).
+    # Security: the called workflow must remain metadata-only (no PR code checkout / execution).
+    # Before bumping the pinned SHA below, confirm the called workflow has no `actions/checkout` or shell steps.
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  cla:
+    # SECURITY NOTE: This workflow runs with `pull_request_target` + write permissions.
+    # Any update to the pinned SHA below requires explicit review of the referenced workflow to ensure it
+    # remains metadata-only (no `actions/checkout`, no shell steps).
+    # Source: Smidjehoien/.github/.github/workflows/cla-mark.yml @ 984cf2944d68fc095d136e198b16aff70a50c3ac
+    # To update: bump the SHA after reviewing changes in the source repo.
+    uses: Smidjehoien/.github/.github/workflows/cla-mark.yml@984cf2944d68fc095d136e198b16aff70a50c3ac
+    with:
+      cover_org_members: true
+      cover_collaborators: true
+      # Users covered by policy (maintainers / automation). Keep this in sync with org policy.
+      # Update this list whenever maintainer/automation accounts change.
+      # Format: comma-separated GitHub usernames with no spaces.
+      allowlist_users: 'cosmicjesterx,charliehelps,charliecreates[bot]'
+      create_missing_labels: true
