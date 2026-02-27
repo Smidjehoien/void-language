@@ -17,7 +17,7 @@ const setOutput = (name, value) => {
     return
   }
 
-  const delimiter = 'EOF_ANDROID_MISSION'
+  const delimiter = `EOF_ANDROID_MISSION_${Math.random().toString(36).slice(2)}`
   fs.appendFileSync(outputPath, `${name}<<${delimiter}\n${stringValue}\n${delimiter}\n`)
 }
 
@@ -44,9 +44,7 @@ const findDangerousKeys = (value, currentPath = '$') => {
       normalized === 'shell' ||
       normalized === 'script' ||
       normalized === 'exec' ||
-      normalized === 'fetch' ||
-      normalized === 'http' ||
-      normalized === 'https'
+      normalized === 'fetch'
     )
   }
 
@@ -80,11 +78,27 @@ const parseMission = () => {
   }
 
   if (missionJson) {
-    return JSON.parse(missionJson)
+    try {
+      return JSON.parse(missionJson)
+    } catch (err) {
+      throw new Error(`Failed to parse mission JSON input: ${err?.message ?? String(err)}`)
+    }
   }
 
-  const missionText = fs.readFileSync(missionFile, 'utf8')
-  return JSON.parse(missionText)
+  let missionText
+  try {
+    missionText = fs.readFileSync(missionFile, 'utf8')
+  } catch (err) {
+    throw new Error(`Failed to read mission_file '${missionFile}': ${err?.message ?? String(err)}`)
+  }
+
+  try {
+    return JSON.parse(missionText)
+  } catch (err) {
+    throw new Error(
+      `Failed to parse mission_file '${missionFile}' as JSON: ${err?.message ?? String(err)}`
+    )
+  }
 }
 
 const validateMission = (mission) => {
@@ -141,7 +155,11 @@ const run = async () => {
   setOutput('mission_id', missionId)
   setOutput('summary', summary)
 
-  addStepSummary(`## Android mission report\n\n- ${summary}`)
+  let markdown = `## Android mission report\n\n- ${summary}`
+  if (steps.length > 0) {
+    markdown += `\n\n### Steps\n${steps.map((s, i) => `- Step ${i + 1}: ${s}`).join('\n')}`
+  }
+  addStepSummary(markdown)
 }
 
 run().catch((err) => {
