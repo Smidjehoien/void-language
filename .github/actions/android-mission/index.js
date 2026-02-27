@@ -10,7 +10,15 @@ const readInput = (name) => {
 const setOutput = (name, value) => {
   const outputPath = process.env.GITHUB_OUTPUT
   if (!outputPath) return
-  fs.appendFileSync(outputPath, `${name}=${String(value).replace(/\n/g, ' ')}\n`)
+
+  const stringValue = String(value)
+  if (!stringValue.includes('\n')) {
+    fs.appendFileSync(outputPath, `${name}=${stringValue}\n`)
+    return
+  }
+
+  const delimiter = 'EOF_ANDROID_MISSION'
+  fs.appendFileSync(outputPath, `${name}<<${delimiter}\n${stringValue}\n${delimiter}\n`)
 }
 
 const addStepSummary = (markdown) => {
@@ -105,6 +113,9 @@ const validateMission = (mission) => {
   }
 
   const steps = stepsRaw.map((s) => s.trim()).filter(Boolean)
+  if (stepsRaw.length > 0 && steps.length === 0) {
+    throw new Error('Mission field steps must contain at least one non-empty string when provided.')
+  }
   return { missionId, objective, steps }
 }
 
