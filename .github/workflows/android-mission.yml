@@ -1,0 +1,19 @@
+name: Android mission
+
+on:
+  workflow_dispatch:
+    inputs:
+      mission_file:
+        description: Path to a mission JSON file in the repo
+        required: true
+        default: .github/android-missions/demo.json
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run android mission
+        uses: ./.github/actions/android-mission
+        with:
+          mission_file: ${{ inputs.mission_file }}
