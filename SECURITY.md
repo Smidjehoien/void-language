@@ -12,6 +12,8 @@ If you cannot use advisories, open an issue that only says you have a security r
 
 Best effort: we aim to acknowledge reports within 7 days.
 
+Security issues include things like authentication/authorization bypass, sensitive data exposure, remote code execution, and supply-chain compromise. Non-security bugs can be filed as regular issues.
+
 When reporting, include:
 
 - A short description of the issue and impact
