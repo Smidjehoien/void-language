@@ -26,7 +26,7 @@ jobs:
     steps:
       # Pinned by commit SHA for supply-chain safety. When Dependabot suggests an update,
       # verify the proposed SHA against the upstream repo before merging.
-      - uses: actions/first-interaction@3c71ce730280171fd1cfb57c00c774f8998586f7
+      - uses: actions/first-interaction@3c71ce730280171fd1cfb57c00c774f8998586f7 # v1.3.0 (v1) https://github.com/actions/first-interaction/releases
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           issue_message: |

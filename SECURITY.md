@@ -26,6 +26,12 @@ Confirmed issues are fixed on `main` (we do not currently maintain backport bran
 
 GitHub Actions must be referenced by commit SHA. When updating a pinned SHA (including Dependabot PRs), verify it corresponds to the intended upstream release/tag.
 
+CI workflows should prefer `pull_request` over `pull_request_target` unless there's a clear need and a dedicated security review.
+
+## Dependencies
+
+We use Dependabot to propose updates for both npm dependencies and pinned GitHub Actions.
+
 When reporting, include:
 
 - A short description of the issue and impact
