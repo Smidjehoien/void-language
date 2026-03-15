@@ -11,10 +11,11 @@ on:
 
 permissions: {}
 # NOTE: Default token permissions are disabled; jobs must explicitly set the minimal permissions they need.
+# All jobs in this workflow must explicitly declare minimal permissions.
 
 jobs:
   greeting:
-    if: '!endsWith(github.actor, ''[bot]'')'
+    if: ${{ github.event.sender.type != 'Bot' }}
     runs-on: ubuntu-latest
     permissions:
       # Note: PR greetings are posted via the Issues API; `pull-requests: read` is only used

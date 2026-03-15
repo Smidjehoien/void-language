@@ -8,9 +8,9 @@ If you consume this project as a dependency, note that security fixes may ship a
 
 ## Reporting a Vulnerability
 
-Preferred: report privately via GitHub Security Advisories (if enabled for this repo).
+Preferred (if enabled for this repo): report privately via GitHub Security Advisories.
 
-If you cannot use advisories, open an issue that only says you have a security report and ask for a private contact channel. Please do not include exploit details in a public issue.
+If advisories are not available, open an issue that only says you have a security report and ask for a private contact channel. Please do not include exploit details in a public issue.
 
 At this time, we only support reporting via GitHub. If additional channels become available, we'll document them here.
 
@@ -23,6 +23,8 @@ Security issues include things like authentication/authorization bypass, sensiti
 ## Remediation
 
 Confirmed issues are fixed on `main` (we do not currently maintain backport branches). For security-sensitive changes, we prefer to coordinate disclosure timing via the report channel.
+
+GitHub Actions must be referenced by commit SHA. When updating a pinned SHA (including Dependabot PRs), verify it corresponds to the intended upstream release/tag.
 
 When reporting, include:
 
