@@ -23,5 +23,13 @@ jobs:
       - uses: actions/first-interaction@3c71ce730280171fd1cfb57c00c774f8998586f7 # v1.3.0 (v1) https://github.com/actions/first-interaction/releases (Dependabot keeps this SHA updated)
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          issue_message: "Message that will be displayed on users' first issue"
-          pr_message: "Message that will be displayed on users' first pull request"
+          issue_message: |
+            Thanks for opening your first issue!
+
+            Please avoid sharing secrets, tokens, or internal URLs in public logs.
+            If this might be a security vulnerability, follow SECURITY.md.
+          pr_message: |
+            Thanks for your first pull request!
+
+            Please make sure you don't commit secrets or sensitive data.
+            If your change is security-related, follow the guidance in SECURITY.md.

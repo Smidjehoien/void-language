@@ -4,6 +4,8 @@
 
 This repo does not currently publish versioned releases. Security fixes land on `main`.
 
+If you consume this project as a dependency, note that security fixes may ship alongside other changes on `main`.
+
 ## Reporting a Vulnerability
 
 Preferred: report privately via GitHub Security Advisories (if enabled for this repo).
