@@ -13,7 +13,7 @@ permissions: {}
 
 jobs:
   greeting:
-    if: github.actor != 'dependabot[bot]' && github.actor != 'github-actions[bot]'
+    if: '!endsWith(github.actor, ''[bot]'')'
     runs-on: ubuntu-latest
     permissions:
       # Note: PR greetings are posted via the Issues API; `pull-requests: read` is only used
@@ -21,7 +21,7 @@ jobs:
       issues: write
       pull-requests: read
     steps:
-      - uses: actions/first-interaction@3c71ce730280171fd1cfb57c00c774f8998586f7 # Pinned by SHA; kept up to date by Dependabot
+      - uses: actions/first-interaction@3c71ce730280171fd1cfb57c00c774f8998586f7 # Pinned by SHA; verify upstream tag before merging Dependabot bumps
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           issue_message: |

@@ -12,7 +12,7 @@ Preferred: report privately via GitHub Security Advisories (if enabled for this 
 
 If you cannot use advisories, open an issue that only says you have a security report and ask for a private contact channel. Please do not include exploit details in a public issue.
 
-We do not currently support alternative reporting channels outside GitHub.
+At this time, we only support reporting via GitHub. If additional channels become available, we'll document them here.
 
 We follow responsible disclosure practices and prefer to coordinate on timing before any public write-up.
 
