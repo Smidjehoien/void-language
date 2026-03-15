@@ -16,9 +16,7 @@ At this time, we only support reporting via GitHub. If additional channels becom
 
 We follow responsible disclosure practices and prefer to coordinate on timing before any public write-up.
 
-Best effort: we aim to acknowledge reports within 7 days.
-
-We prioritize critical and high-impact vulnerabilities over lower-severity issues.
+We try to review and acknowledge security reports as quickly as we can, with priority given to critical and high-impact vulnerabilities.
 
 Security issues include things like authentication/authorization bypass, sensitive data exposure, remote code execution, and supply-chain compromise. Non-security bugs can be filed as regular issues.
 
