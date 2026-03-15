@@ -10,6 +10,8 @@ Preferred: report privately via GitHub Security Advisories (if enabled for this 
 
 If you cannot use advisories, open an issue that only says you have a security report and ask for a private contact channel. Please do not include exploit details in a public issue.
 
+Best effort: we aim to acknowledge reports within 7 days.
+
 When reporting, include:
 
 - A short description of the issue and impact

@@ -3,10 +3,11 @@ name: Greetings
 on:
   issues:
     types: [opened]
-  pull_request_target:
+  pull_request:
     types: [opened]
 
 permissions: {}
+# NOTE: Default token permissions are disabled; jobs must explicitly set the minimal permissions they need.
 
 jobs:
   greeting:
