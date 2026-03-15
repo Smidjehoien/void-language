@@ -2,20 +2,16 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+This repo does not currently publish versioned releases. Security fixes land on `main`.
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+Preferred: report privately via GitHub Security Advisories (if enabled for this repo).
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+If you cannot use advisories, open an issue that only says you have a security report and ask for a private contact channel. Please do not include exploit details in a public issue.
+
+When reporting, include:
+
+- A short description of the issue and impact
+- Steps to reproduce (or a minimal PoC)
+- Any relevant logs or screenshots (sanitized)
