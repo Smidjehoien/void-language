@@ -14,6 +14,8 @@ We follow responsible disclosure practices and prefer to coordinate on timing be
 
 Best effort: we aim to acknowledge reports within 7 days.
 
+We prioritize critical and high-impact vulnerabilities over lower-severity issues.
+
 Security issues include things like authentication/authorization bypass, sensitive data exposure, remote code execution, and supply-chain compromise. Non-security bugs can be filed as regular issues.
 
 ## Remediation
