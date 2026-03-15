@@ -21,3 +21,5 @@ When reporting, include:
 - A short description of the issue and impact
 - Steps to reproduce (or a minimal PoC)
 - Any relevant logs or screenshots (sanitized)
+
+We do not currently run a paid bug bounty. Please ensure any PoC does not use real user data or impact real users.

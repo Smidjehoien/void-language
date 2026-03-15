@@ -7,6 +7,7 @@ on:
     # Note: we use `pull_request` instead of `pull_request_target` to avoid
     # running with elevated privileges on code from forks.
     types: [opened]
+    branches: [main]
 
 permissions: {}
 # NOTE: Default token permissions are disabled; jobs must explicitly set the minimal permissions they need.
