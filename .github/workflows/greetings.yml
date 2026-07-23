@@ -1,16 +1,41 @@
 name: Greetings
 
-on: [pull_request_target, issues]
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    # Note: we use `pull_request` instead of `pull_request_target` to avoid
+    # running with elevated privileges on code from forks. This also means secrets
+    # (other than GITHUB_TOKEN) are not available for forked PRs.
+    types: [opened]
+
+permissions: {}
+# NOTE: Default token permissions are disabled; jobs must explicitly set the minimal permissions they need.
+# All jobs in this workflow must explicitly declare minimal permissions.
 
 jobs:
   greeting:
+    if: ${{ github.event.sender.type != 'Bot' }}
     runs-on: ubuntu-latest
     permissions:
+      # Note: PR greetings are posted via the Issues API; `pull-requests: read` is only used
+      # to check whether a user has opened a PR before.
+      # Do not broaden these permissions without a security review.
       issues: write
-      pull-requests: write
+      pull-requests: read
     steps:
-    - uses: actions/first-interaction@v1
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-        issue-message: "Message that will be displayed on users' first issue"
-        pr-message: "Message that will be displayed on users' first pull request"
+      # Pinned by commit SHA for supply-chain safety. When Dependabot suggests an update,
+      # verify the proposed SHA against the upstream repo before merging.
+      - uses: actions/first-interaction@3c71ce730280171fd1cfb57c00c774f8998586f7 # v1.3.0 (v1) https://github.com/actions/first-interaction/releases
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          issue_message: |
+            Thanks for opening your first issue!
+
+            Please avoid sharing secrets, tokens, or internal URLs in public logs.
+            If this might be a security vulnerability, follow SECURITY.md (repo root / Security tab).
+          pr_message: |
+            Thanks for your first pull request!
+
+            Please make sure you don't commit secrets or sensitive data.
+            If your change is security-related, follow the guidance in SECURITY.md (repo root / Security tab).

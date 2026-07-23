@@ -1,0 +1,13 @@
+version: 2
+# This config is expected to keep pinned GitHub Actions SHAs (in workflows) updated.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 10
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
