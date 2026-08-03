@@ -19,6 +19,8 @@ bun run agent:run -- \
 
 Before presenting or validating approval, the loader securely opens and validates the local input and computes the **actual** query count, planned units, and maximum attempts. It must not dispatch, log, display, or persist query values while doing so. A declared count is only an optional upper-bound assertion and must match the actual count if supplied.
 
+`executionMode: "dry-run"` is strictly local: secure input validation and deterministic planning only. It must not perform network-capable/provider preflight, spawn the Python bridge, call `adapter.preflight` or `adapter.check`, access a proxy/auth secret channel, dispatch work, or create/update an execution-progress checkpoint. It returns a bounded sanitized report with `status: "planned"` and counts/limits only. Compatibility probes are separate explicit operations, never an implicit dry-run phase.
+
 ## Versioned run request
 
 ```json
@@ -47,9 +49,9 @@ V1 validation requires:
 
 ## Local path contract
 
-Request, input, checkpoint, and report paths must resolve to local regular files in operator-controlled directories. The harness rejects symlinks, devices, sockets, FIFOs, procfs/sysfs-style paths, non-local mounts when they cannot provide required atomicity, unsafe ownership, and group/world-writable files or parent directories. Opens use platform-appropriate no-follow/exclusive primitives and verify identity/metadata after opening to prevent TOCTOU replacement.
+Existing request, input, and resume-checkpoint paths must securely resolve to safe local regular files in operator-controlled directories. A prospective report destination must not exist. The harness rejects symlinks, devices, sockets, FIFOs, procfs/sysfs-style paths, non-local mounts when they cannot provide required atomicity, unsafe ownership, and group/world-writable files or parent directories. Opens use platform-appropriate no-follow/exclusive primitives and verify identity/metadata after opening to prevent TOCTOU replacement.
 
-Input and request files are opened read-only. New report/checkpoint files use exclusive create with restrictive permissions and same-directory temporary files plus atomic rename. Existing reports are never overwritten. Existing checkpoints may be replaced only by an atomic update while the exclusive run lock is held; completed/stale checkpoints require explicit safe rotation to a new path or run ID. Resume refuses replacement, ownership, mode, or schema mismatches.
+Input and request files are opened read-only. A new checkpoint uses restrictive exclusive creation; subsequent same-directory temporary updates may atomically replace it only while the exclusive run lock is held and only after verifying the existing file is the run-owned checkpoint. A new report is built in a restrictively created same-directory temporary and published with `renameat2(..., RENAME_NOREPLACE)` or an equivalent atomic same-filesystem no-clobber primitive. If the platform cannot guarantee atomic no-replace, publication fails closed; ordinary overwrite-capable rename is forbidden. A competing create immediately before publication returns `REPORT_DESTINATION_EXISTS` and never overwrites either file. Completed/stale checkpoints require explicit safe rotation to a new path or run ID. Reports are never overwritten. Resume refuses replacement, ownership, mode, or schema mismatches.
 
 ## Deterministic plan and harness contract
 
@@ -64,13 +66,13 @@ runHarness({
   executionMode: "dry-run" | "live",
   units: PlannedUnit[],
   policy: ResolvedPreset,
-  absoluteMonotonicDeadline: MonotonicInstant,
+  remainingActiveBudgetMs: AuthenticatedDuration,
   signal: AbortSignal,
   adapter: AvailabilityAdapter
 }) -> Promise<RunReportV1>
 ```
 
-`plannedUnits = actualQueryCount * platformCount` before unsupported query/platform omissions are known. `maxAttempts = min(plannedUnits * (1 + retriesPerUnit), presetAttemptCeiling, manifestAttemptCeiling, deadlineFeasibleAttempts)`. The harness rejects a request whose resolved counts exceed any ceiling.
+Reject platform IDs outside the pinned manifest before planning. Plan every valid requested `{query, platform}` unit in deterministic normalized-input order × pinned-manifest platform order; do not query-filter or silently compatibility-filter. `plannedUnits = actualQueryCount * platformCount` is authoritative for approval/HMAC binding, attempt ceilings, checkpoint ordinals, and report `requested` counts. If SocialScan omits a requested combination, the planned unit completes as `unknown` rather than disappearing. `maxAttempts = min(plannedUnits * (1 + retriesPerUnit), presetAttemptCeiling, manifestAttemptCeiling, activeBudgetFeasibleAttempts)`. The harness rejects a request whose resolved counts exceed any ceiling.
 
 The opaque run ID is random and contains no input-derived material. One exclusive run/checkpoint lock prevents concurrent duplicate execution. Successful completed ordinals are immutable: retries and resume may schedule only incomplete ordinals.
 
@@ -143,17 +145,19 @@ No classification may be inferred from raw message or link text. `unknown` and `
 
 Only one failed unit is retried; successful provider checks are never replayed. Retryable transient outcomes may carry provider identity internally for bounded `Retry-After`, capped exponential backoff with jitter, provider-lane pacing/pause, and run-scoped circuit behavior. If provider isolation is unavailable, a throttle or circuit pauses the entire logical lane for that provider, not unrelated providers and not already successful ordinals.
 
-The harness establishes an absolute monotonic run deadline. Validation, preflight, approval wait, pacing/backoff, dispatch, bridge process groups, checkpointing, report construction, and report writing all observe cancellation and a derived remaining budget. A new attempt is forbidden unless the remaining budget covers the attempt timeout plus the 2-second cleanup/report reserve. On cancellation or timeout, terminate the process group, allow 1 second for graceful exit, then force-kill it.
+The checkpoint preserves one total active processing budget across invocations as authenticated `remainingActiveBudgetMs`, not an absolute monotonic timestamp. Each invocation derives its local absolute deadline as `monotonic_now + remainingActiveBudgetMs`, charges monotonic elapsed time while the harness is active, and persists a non-increasing remaining duration before/after attempts and on orderly cancellation. Dormant time between invocations is not charged because provider work cannot occur. A new attempt is forbidden unless the remaining budget covers its reserved attempt timeout plus the 2-second cleanup/report reserve. On cancellation or timeout, terminate the process group, allow 1 second for graceful exit, then force-kill it.
+
+Immediately before dispatch, persist a checkpoint that conservatively debits the full reserved attempt budget. Subsequent checkpoints may reduce the remaining duration further; they may reconcile a reservation only when authenticated crash-safe state proves dispatch did not occur, and may never increase beyond any previously safe value. Missing, unauthenticated, inconsistent, incompatible-schema, zero, or expired budget state fails closed. Resume caps the authenticated duration by the original preset ceiling and any newly approved lower limit, never increases it, and still requires fresh live/Fast approval.
 
 ## Approval contract
 
-Interactive approval displays only sanitized plan facts: actual query count, platforms, preset, planned units, retries per unit, `maxAttempts`, deadline, and retention behavior. It never displays input values.
+Interactive approval displays only sanitized plan facts: actual query count, platforms, preset, planned units, retries per unit, `maxAttempts`, active processing budget, and retention behavior. It never displays input values.
 
 A non-interactive signed approval is accepted only if its authenticated payload binds all of:
 
 - request/plan digest and manifest schema/version;
-- actual query count and normalized platform list;
-- preset and computed `maxAttempts`;
+- actual query count, normalized platform list, and authoritative `plannedUnits`;
+- preset, computed `maxAttempts`, and approved active processing budget;
 - execution mode, expiry, and operator identity.
 
 Fast requires a separate explicit acknowledgment bound to the same plan. Missing, expired, stale, differently scoped, or signature-invalid approval returns `LIVE_APPROVAL_REQUIRED` or `APPROVAL_STALE`; a mode/flag/manifest conflict returns `INVALID_REQUEST`; missing Fast acknowledgment returns `FAST_ACK_REQUIRED`. All are terminal before provider dispatch. Resume always requires fresh live/Fast approval.
@@ -177,7 +181,8 @@ The checkpoint contains only:
   "limits": {
     "plannedUnits": 4,
     "maxAttempts": 8,
-    "deadlineBudgetMs": 900000
+    "originalActiveBudgetCeilingMs": 900000,
+    "remainingActiveBudgetMs": 780000
   },
   "aggregate": {
     "attempts": 3,
@@ -189,11 +194,11 @@ The checkpoint contains only:
 }
 ```
 
-No query, email/handle, provider URL, message, or per-query/provider outcome is checkpointed. `inputPlanHmac` covers the exact normalized input, resolved deterministic plan, schema/manifest versions, preset, and ceilings using an installation-local key held outside the checkpoint/report, such as an OS credential store. Never persist a bare or unsalted digest of low-entropy input.
+No query, email/handle, provider URL, message, or per-query/provider outcome is checkpointed. `inputPlanHmac` covers the exact normalized input, resolved deterministic plan, schema/manifest versions, preset, attempt ceilings, original active-budget ceiling, and non-increasing remaining active budget using an installation-local key held outside the checkpoint/report, such as an OS credential store. Never persist a bare or unsalted digest of low-entropy input.
 
-`--resume` securely rereads the operator input, reacquires the exclusive lock, recomputes the HMAC and plan, and skips completed ordinals. It preserves original preset, attempt, and deadline ceilings; wall-clock resume policy may only reduce remaining time. Reject missing keys, HMAC/plan/input changes, stale or completed state, concurrent runs, unsafe path replacement, and schema/compatibility mismatch before dispatch.
+`--resume` securely rereads the operator input, reacquires the exclusive lock, recomputes the HMAC and plan, and skips completed ordinals. It authenticates the original active-budget ceiling and non-increasing remaining duration, then caps the latter by the original preset ceiling and any newly approved lower limit. Reject missing keys, HMAC/plan/input changes, missing/unauthenticated/inconsistent/zero/expired budget data, stale or completed state, concurrent runs, unsafe path replacement, and schema/compatibility mismatch before dispatch.
 
-Checkpoint updates are atomic. On cancellation, only fully completed ordinals are added, active attempts are terminated, and the last valid checkpoint remains resumable. A new invocation without `--resume` cannot reuse an active run ID/checkpoint. Completed runs are immutable and require explicit safe rotation/new run ID.
+Checkpoint updates are atomic and may replace only the identity/ownership-verified run-owned checkpoint while its exclusive lock is held. Persist before each attempt with its reserved budget already debited, after attempts, and on orderly cancellation. Only fully completed ordinals are added; active attempts are terminated, and the last valid checkpoint remains resumable without resetting the budget. A new invocation without `--resume` cannot reuse an active run ID/checkpoint. Completed runs are immutable and require explicit safe rotation/new run ID.
 
 ## Stable failure codes
 
@@ -206,7 +211,7 @@ All report maps are bounded to this versioned enum:
 | Compatibility | `PYTHON_VERSION_UNSUPPORTED`, `SOCIALSCAN_VERSION_UNSUPPORTED`, `PROVIDER_API_UNVERIFIED` | No |
 | Lock/resume | `RUN_LOCKED`, `CHECKPOINT_INVALID`, `RESUME_INPUT_CHANGED`, `RESUME_STATE_STALE` | No |
 | Bridge/provider | `BRIDGE_CONFIGURATION`, `BRIDGE_IMPORT_FAILURE`, `BRIDGE_OUTPUT_INVALID`, `BRIDGE_TIMEOUT`, `PROVIDER_RATE_LIMITED`, `PROVIDER_TIMEOUT`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RESPONSE_UNKNOWN` | Only documented transient timeout/rate/unavailable classes, within budget |
-| Lifecycle/report | `RUN_CANCELED`, `RUN_DEADLINE_EXCEEDED`, `REPORT_WRITE_FAILED` | No automatic rerun |
+| Lifecycle/report | `RUN_CANCELED`, `RUN_DEADLINE_EXCEEDED`, `REPORT_DESTINATION_EXISTS`, `REPORT_WRITE_FAILED` | No automatic rerun |
 
 Raw exceptions, stdout/stderr, provider messages/URLs, proxy details, headers, response bodies, and credentials are not report fields.
 
@@ -279,7 +284,7 @@ Raw exceptions, stdout/stderr, provider messages/URLs, proxy details, headers, r
 }
 ```
 
-Allowed statuses are `planned`, `completed`, `completed_with_failures`, `canceled`, and `failed`. `byPlatform` keys are limited to the eight-entry pinned manifest, and every `failuresByCode` map is limited to the stable enum. Report serialization is capped at 256 KiB. Construction plus atomic write receives a 2-second reserved budget; temporary files are removed on failure. If a required report cannot be safely emitted, terminate with stable `REPORT_WRITE_FAILED`, retain only the last valid checkpoint when applicable, and print no raw diagnostics.
+Allowed statuses are `planned`, `completed`, `completed_with_failures`, `canceled`, and `failed`. A dry-run report is `planned` and contains counts/limits only: no compatibility block, provider outcomes, dispatch timings, or execution-progress checkpoint. `byPlatform` keys are limited to the requested members of the eight-entry pinned manifest, each `requested` count comes from the authoritative plan, and every `failuresByCode` map is limited to the stable enum. Report serialization is capped at 256 KiB. Construction plus no-clobber atomic publication receives a 2-second reserved budget; temporary files are removed on failure. If the final destination exists, return `REPORT_DESTINATION_EXISTS`; if any other required report publication step fails, return `REPORT_WRITE_FAILED`. Retain only the last valid checkpoint when applicable and print no raw diagnostics.
 
 Reports contain no query, email/handle, provider URL, message, account/profile data, proxy data, credentials, secret references, raw exception, or subprocess output.
 
