@@ -81,18 +81,23 @@ def is_match(item):
     if isinstance(item, dict):
         if item.get("success") is False or item.get("valid") is False:
             return False
-        for key in ("found", "available", "exists", "valid"):
+        available = item.get("available")
+        if isinstance(available, bool):
+            return item.get("success") is True and item.get("valid") is True and not available
+        for key in ("found", "exists"):
             if isinstance(item.get(key), bool):
-                return item[key] if key != "available" else not item[key]
+                return item[key]
         return False
     if getattr(item, "success", None) is False or getattr(item, "valid", None) is False:
         return False
-    for key in ("found", "exists", "valid"):
+    available = getattr(item, "available", None)
+    if isinstance(available, bool):
+        return getattr(item, "success", None) is True and getattr(item, "valid", None) is True and not available
+    for key in ("found", "exists"):
         value = getattr(item, key, None)
         if isinstance(value, bool):
             return value
-    available = getattr(item, "available", None)
-    return not available if isinstance(available, bool) else False
+    return False
 
 
 async def main():
