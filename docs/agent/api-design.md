@@ -1,20 +1,23 @@
 # Agent harness API design
 
-**Status:** Provisional v1 contract. Names and limits are release candidates until the SocialScan compatibility gate is satisfied.
+**Status:** Adopted v1 research contract. Live implementation remains gated by the compatibility and approval requirements below.
 
-## CLI surface
+## CLI surface and execution semantics
+
+Manifest-driven live run:
 
 ```text
 bun run agent:run -- \
   --request ./run-request.v1.json \
   --input ./private-queries.txt \
   --output ./run-report.v1.json \
+  --checkpoint ./run-checkpoint.v1.json \
   --approve-live
 ```
 
-`--request`, `--input`, and `--output` are required. `--approve-live` records interactive/operator approval for public-provider calls; `--dry-run` validates and plans without calling providers. Direct overrides such as `--preset`, `--platform`, or `--timeout-ms` may be supported only if they pass the same schema and preset ceilings. The CLI must reject conflicting flags and unknown options.
+`executionMode` in the request is canonical. CLI mode flags may be used only when the CLI synthesizes the whole request; they must not conflict with a supplied request manifest. `--approve-live` is ephemeral authorization for `executionMode: "live"`, not a mode override, and is rejected for `executionMode: "dry-run"`. Fast additionally requires `--acknowledge-fast` or the equivalent separately signed acknowledgment. Unknown and conflicting flags fail with `INVALID_REQUEST` before dispatch.
 
-The input file is newline-delimited and transient. It must be permission-restricted, read only after validation/approval, and never copied to the request document, report, console logs, test snapshots, or error messages.
+Before presenting or validating approval, the loader securely opens and validates the local input and computes the **actual** query count, planned units, and maximum attempts. It must not dispatch, log, display, or persist query values while doing so. A declared count is only an optional upper-bound assertion and must match the actual count if supplied.
 
 ## Versioned run request
 
@@ -22,114 +25,190 @@ The input file is newline-delimited and transient. It must be permission-restric
 {
   "schemaVersion": 1,
   "goal": "public-account-availability",
+  "executionMode": "dry-run",
   "platforms": ["github", "gitlab"],
   "preset": "safe",
   "input": {
     "kind": "newline-file",
-    "count": 2
-  },
-  "dryRun": true
+    "declaredCount": 2
+  }
 }
 ```
 
-The request stores only input location/type metadata and a declared count, not the values. Recommended v1 validation limits:
+V1 validation requires:
 
 - exactly `schemaVersion: 1` and `goal: "public-account-availability"`;
+- exactly one `executionMode`: `dry-run` or `live`;
 - 1–1,000 non-empty input lines, each at most 320 UTF-8 bytes after normalization;
-- 1–11 unique platform identifiers from the pinned compatibility manifest;
+- 1–8 unique platform IDs from the pinned manifest: `github`, `gitlab`, `instagram`, `pinterest`, `reddit`, `twitter`, `tumblr`, `firefox`;
 - one of `safe`, `balanced`, or `fast`; no custom setting may exceed the Fast ceiling;
-- request document at most 64 KiB and bridge response at most 1 MiB;
-- local input/output paths only in v1; no URLs, inline credentials, or inline query arrays;
-- unknown fields are rejected rather than ignored.
+- request document at most 64 KiB, bridge request at most 1 KiB, bridge response at most 16 KiB, and report at most 256 KiB;
+- unknown fields rejected rather than ignored.
 
-## Harness contract
+## Local path contract
 
-The in-process harness receives validated transient values plus a policy object. This is an internal contract, not a persistence format.
+Request, input, checkpoint, and report paths must resolve to local regular files in operator-controlled directories. The harness rejects symlinks, devices, sockets, FIFOs, procfs/sysfs-style paths, non-local mounts when they cannot provide required atomicity, unsafe ownership, and group/world-writable files or parent directories. Opens use platform-appropriate no-follow/exclusive primitives and verify identity/metadata after opening to prevent TOCTOU replacement.
+
+Input and request files are opened read-only. New report/checkpoint files use exclusive create with restrictive permissions and same-directory temporary files plus atomic rename. Existing reports are never overwritten. Existing checkpoints may be replaced only by an atomic update while the exclusive run lock is held; completed/stale checkpoints require explicit safe rotation to a new path or run ID. Resume refuses replacement, ownership, mode, or schema mismatches.
+
+## Deterministic plan and harness contract
+
+The internal plan is ordered input-major, then by normalized manifest platform order:
 
 ```text
+PlannedUnit = { ordinal: integer, query: TransientString, platform: PlatformId }
+
 runHarness({
   schemaVersion: 1,
-  queries: TransientString[],
-  platforms: PlatformId[],
+  runId: OpaqueRunId,
+  executionMode: "dry-run" | "live",
+  units: PlannedUnit[],
   policy: ResolvedPreset,
+  absoluteMonotonicDeadline: MonotonicInstant,
   signal: AbortSignal,
   adapter: AvailabilityAdapter
 }) -> Promise<RunReportV1>
 ```
 
-The orchestrator creates a deterministic plan, applies a bounded worker pool, passes cancellation to the adapter, and returns an aggregate report even when individual checks fail. Validation, compatibility, approval, or report-write failures are run-level failures.
+`plannedUnits = actualQueryCount * platformCount` before unsupported query/platform omissions are known. `maxAttempts = min(plannedUnits * (1 + retriesPerUnit), presetAttemptCeiling, manifestAttemptCeiling, deadlineFeasibleAttempts)`. The harness rejects a request whose resolved counts exceed any ceiling.
 
-## Adapter contract
+The opaque run ID is random and contains no input-derived material. One exclusive run/checkpoint lock prevents concurrent duplicate execution. Successful completed ordinals are immutable: retries and resume may schedule only incomplete ordinals.
+
+## Adapter and bridge contract
 
 ```text
-adapter.preflight({ platforms, compatibilityVersion, signal })
-  -> { ready: true, adapterVersion, providerApiVersion }
+adapter.preflight({ platformManifestVersion, pythonPath, signal })
+  -> { ready: true, adapterVersion, pythonVersion, socialscanVersion, wheelSha256 }
 
-adapter.check({ transientQuery, platforms, timeoutMs, signal })
-  -> {
-       counts: { available, taken, unknown, error },
-       failuresByCode: Record<FailureCode, number>
-     }
+adapter.check({ ordinal, transientQuery, platform, timeoutMs, signal, secretChannel })
+  -> TransientProviderOutcome
 ```
 
-Result semantics are deliberately distinct:
+`adapter.check` accepts exactly one platform. A transient outcome may include the platform ID, retry-after hint, and lane state needed by the scheduler, but no transient outcome is persisted per query/provider.
 
-- `available`: the provider returned a successful, valid response that explicitly indicates the identifier is not taken.
-- `taken`: the provider returned a successful, valid response that explicitly indicates an existing account/identifier.
-- `unknown`: no definitive availability result was possible, such as an unsupported/changed response, provider throttle, or ambiguous validity.
-- `error`: the check could not complete because the harness, bridge, configuration, timeout, or provider operation failed.
+The adapter launches an already-resolved absolute Python executable with an explicit minimal environment allowlist. It strips ambient `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, lowercase variants, provider tokens, cloud credentials, auth variables, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, and similar network/certificate overrides. Approved proxy/auth configuration must be provider-scoped and delivered through a dedicated inherited descriptor or equivalent secret-safe channel. It is never inherited implicitly, placed in process arguments, logged, or written to reports/checkpoints.
 
-`unknown` must never be coerced to `available`, and `error` must never be reported as `taken`. Per-query classifications are used transiently for aggregation and are not persisted in v1.
-
-## Python bridge contract
-
-The Bun adapter starts a Python 3.10+ subprocess with JSON on stdin and one bounded JSON object on stdout. The bridge must not write provider diagnostics to stdout.
-
-Request (transient; never logged):
+Bridge request, sent only on stdin and never logged:
 
 ```json
 {
   "bridgeVersion": 1,
   "action": "check",
+  "ordinal": 3,
   "query": "<transient-input>",
-  "platforms": ["github", "gitlab"]
+  "platform": "github"
 }
 ```
 
-Response:
+The Python 3.10+ bridge imports:
+
+```text
+from socialscan.util import Platforms, execute_queries
+```
+
+It calls `await execute_queries([query], [platform])` exactly once for the unit. It must not call `sync_execute_queries`, because v2.0.1 implements that wrapper with `asyncio.run`, which cannot be nested in the bridge's running event loop.
+
+The sole candidate is `socialscan==2.0.1`, commit/tag `7373757e616cbe5a56e1a67b9a39e3ae67bcb2a8`, PyPI wheel SHA-256 `be3075208c6e1dc577869ed27ca37fb1ad14d95e37641fc85d5c09f307e93be3`. Canonical references:
+
+- https://pypi.org/project/socialscan/2.0.1/
+- https://github.com/iojw/socialscan/blob/7373757e616cbe5a56e1a67b9a39e3ae67bcb2a8/socialscan/util.py
+- https://github.com/iojw/socialscan/blob/7373757e616cbe5a56e1a67b9a39e3ae67bcb2a8/socialscan/platforms.py
+
+The bridge validates only the pinned `PlatformResponse` fields: `platform`, `query`, `available`, `valid`, `success`, `message`, and `link`. It verifies that returned platform/query correspond to the transient request, then discards raw `query`, `message`, and `link`; none may cross stdout. The v2.0.1 result list may omit unsupported query/platform combinations.
+
+Bounded response:
 
 ```json
 {
   "bridgeVersion": 1,
+  "ordinal": 3,
   "ok": true,
-  "counts": {
-    "available": 1,
-    "taken": 0,
-    "unknown": 1,
-    "error": 0
-  },
-  "failuresByCode": {
-    "PROVIDER_RATE_LIMITED": 1
-  }
+  "classification": "taken",
+  "failureCode": null,
+  "retryAfterMs": null
 }
 ```
 
-The bridge validates exact fields and versions, imports only the pinned SocialScan interface, normalizes outputs, and discards raw provider payloads and exceptions. Bun kills the process on timeout, cancellation, oversized output, or malformed output.
+Classification rules:
 
-## Stable failure classifications
+- `available`: `success && valid && available`.
+- `taken`: `success && valid && !available`.
+- `invalid`: `success && !valid`; it remains distinct from `unknown`.
+- `unknown`: no result was returned for the unit or the bounded pinned fields are inconclusive.
+- `error`: the bridge/provider operation failed with a stable failure code.
 
-The public report uses stable categories; implementation details may map to more specific internal codes.
+No classification may be inferred from raw message or link text. `unknown` and `error` are never coerced to `available` or `taken`.
 
-| Category | Example stable codes | Retryable |
+## Retry, provider lanes, and deadlines
+
+Only one failed unit is retried; successful provider checks are never replayed. Retryable transient outcomes may carry provider identity internally for bounded `Retry-After`, capped exponential backoff with jitter, provider-lane pacing/pause, and run-scoped circuit behavior. If provider isolation is unavailable, a throttle or circuit pauses the entire logical lane for that provider, not unrelated providers and not already successful ordinals.
+
+The harness establishes an absolute monotonic run deadline. Validation, preflight, approval wait, pacing/backoff, dispatch, bridge process groups, checkpointing, report construction, and report writing all observe cancellation and a derived remaining budget. A new attempt is forbidden unless the remaining budget covers the attempt timeout plus the 2-second cleanup/report reserve. On cancellation or timeout, terminate the process group, allow 1 second for graceful exit, then force-kill it.
+
+## Approval contract
+
+Interactive approval displays only sanitized plan facts: actual query count, platforms, preset, planned units, retries per unit, `maxAttempts`, deadline, and retention behavior. It never displays input values.
+
+A non-interactive signed approval is accepted only if its authenticated payload binds all of:
+
+- request/plan digest and manifest schema/version;
+- actual query count and normalized platform list;
+- preset and computed `maxAttempts`;
+- execution mode, expiry, and operator identity.
+
+Fast requires a separate explicit acknowledgment bound to the same plan. Missing, expired, stale, differently scoped, or signature-invalid approval returns `LIVE_APPROVAL_REQUIRED` or `APPROVAL_STALE`; a mode/flag/manifest conflict returns `INVALID_REQUEST`; missing Fast acknowledgment returns `FAST_ACK_REQUIRED`. All are terminal before provider dispatch. Resume always requires fresh live/Fast approval.
+
+The request/plan digest used for approval may be a strong digest over canonical transient planning material because the approval is not persisted as an input fingerprint. Checkpoint identity uses the keyed HMAC contract below and never persists an unhashed/unsalted low-entropy digest.
+
+## Checkpoint and resume contract
+
+The checkpoint contains only:
+
+```json
+{
+  "schemaVersion": 1,
+  "runId": "opaque-run-id",
+  "state": "in_progress",
+  "preset": "safe",
+  "compatibility": {
+    "manifestVersion": "socialscan-2.0.1-v1",
+    "pythonBaseline": ">=3.10"
+  },
+  "limits": {
+    "plannedUnits": 4,
+    "maxAttempts": 8,
+    "deadlineBudgetMs": 900000
+  },
+  "aggregate": {
+    "attempts": 3,
+    "retries": 0,
+    "completedUnits": 3
+  },
+  "completedOrdinals": [0, 1, 2],
+  "inputPlanHmac": "keyed-hmac"
+}
+```
+
+No query, email/handle, provider URL, message, or per-query/provider outcome is checkpointed. `inputPlanHmac` covers the exact normalized input, resolved deterministic plan, schema/manifest versions, preset, and ceilings using an installation-local key held outside the checkpoint/report, such as an OS credential store. Never persist a bare or unsalted digest of low-entropy input.
+
+`--resume` securely rereads the operator input, reacquires the exclusive lock, recomputes the HMAC and plan, and skips completed ordinals. It preserves original preset, attempt, and deadline ceilings; wall-clock resume policy may only reduce remaining time. Reject missing keys, HMAC/plan/input changes, stale or completed state, concurrent runs, unsafe path replacement, and schema/compatibility mismatch before dispatch.
+
+Checkpoint updates are atomic. On cancellation, only fully completed ordinals are added, active attempts are terminated, and the last valid checkpoint remains resumable. A new invocation without `--resume` cannot reuse an active run ID/checkpoint. Completed runs are immutable and require explicit safe rotation/new run ID.
+
+## Stable failure codes
+
+All report maps are bounded to this versioned enum:
+
+| Category | Stable codes | Retryable |
 | --- | --- | --- |
-| Validation | `INVALID_REQUEST`, `INVALID_INPUT`, `PLATFORM_UNSUPPORTED` | No |
-| Approval/policy | `LIVE_APPROVAL_REQUIRED`, `POLICY_LIMIT_EXCEEDED` | No |
+| Validation/path | `INVALID_REQUEST`, `INVALID_INPUT`, `UNSAFE_PATH`, `PLATFORM_UNSUPPORTED` | No |
+| Approval/policy | `LIVE_APPROVAL_REQUIRED`, `APPROVAL_STALE`, `FAST_ACK_REQUIRED`, `POLICY_LIMIT_EXCEEDED` | No |
 | Compatibility | `PYTHON_VERSION_UNSUPPORTED`, `SOCIALSCAN_VERSION_UNSUPPORTED`, `PROVIDER_API_UNVERIFIED` | No |
-| Bridge | `BRIDGE_CONFIGURATION`, `BRIDGE_IMPORT_FAILURE`, `BRIDGE_OUTPUT_INVALID`, `BRIDGE_TIMEOUT` | Timeout only, within budget |
-| Provider | `PROVIDER_RATE_LIMITED`, `PROVIDER_TIMEOUT`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RESPONSE_UNKNOWN` | First three, within budget |
-| Run lifecycle | `RUN_CANCELED`, `RUN_DEADLINE_EXCEEDED`, `REPORT_WRITE_FAILED` | No automatic rerun |
+| Lock/resume | `RUN_LOCKED`, `CHECKPOINT_INVALID`, `RESUME_INPUT_CHANGED`, `RESUME_STATE_STALE` | No |
+| Bridge/provider | `BRIDGE_CONFIGURATION`, `BRIDGE_IMPORT_FAILURE`, `BRIDGE_OUTPUT_INVALID`, `BRIDGE_TIMEOUT`, `PROVIDER_RATE_LIMITED`, `PROVIDER_TIMEOUT`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RESPONSE_UNKNOWN` | Only documented transient timeout/rate/unavailable classes, within budget |
+| Lifecycle/report | `RUN_CANCELED`, `RUN_DEADLINE_EXCEEDED`, `REPORT_WRITE_FAILED` | No automatic rerun |
 
-Raw exception messages, proxy details, URLs, headers, response bodies, and subprocess stderr are not report fields.
+Raw exceptions, stdout/stderr, provider messages/URLs, proxy details, headers, response bodies, and credentials are not report fields.
 
 ## Aggregate run report
 
@@ -137,47 +216,77 @@ Raw exception messages, proxy details, URLs, headers, response bodies, and subpr
 {
   "schemaVersion": 1,
   "run": {
+    "runId": "opaque-run-id",
     "status": "completed_with_failures",
     "preset": "safe",
-    "dryRun": false,
+    "executionMode": "live",
     "startedAt": "2026-08-03T16:00:00Z",
     "durationMs": 4120
   },
   "compatibility": {
     "adapterVersion": "1",
-    "python": ">=3.10",
-    "socialscanApi": "pinned-at-release"
+    "pythonBaseline": ">=3.10",
+    "socialscanVersion": "2.0.1",
+    "manifestVersion": "socialscan-2.0.1-v1"
   },
   "aggregate": {
     "queries": 2,
-    "platformChecksRequested": 4,
+    "plannedUnits": 4,
+    "completedUnits": 4,
     "available": 1,
     "taken": 1,
-    "unknown": 1,
+    "invalid": 1,
+    "unknown": 0,
     "error": 1,
     "attempts": 5,
     "retries": 1,
     "failuresByCode": {
-      "PROVIDER_RATE_LIMITED": 1,
       "BRIDGE_TIMEOUT": 1
+    },
+    "byPlatform": {
+      "github": {
+        "requested": 2,
+        "available": 1,
+        "taken": 0,
+        "invalid": 0,
+        "unknown": 0,
+        "error": 1,
+        "retries": 1,
+        "durationMs": 2200,
+        "failuresByCode": {
+          "BRIDGE_TIMEOUT": 1
+        }
+      },
+      "gitlab": {
+        "requested": 2,
+        "available": 0,
+        "taken": 1,
+        "invalid": 1,
+        "unknown": 0,
+        "error": 0,
+        "retries": 0,
+        "durationMs": 1700,
+        "failuresByCode": {}
+      }
     }
+  },
+  "timingsMs": {
+    "validation": 40,
+    "preflightApproval": 300,
+    "dispatch": 3700,
+    "reportWrite": 80
   }
 }
 ```
 
-Allowed run statuses are `planned`, `completed`, `completed_with_failures`, `canceled`, and `failed`. Reports contain aggregate counts only: no raw handles, emails, provider payloads, account/profile data, provider URLs, proxy data, or raw exceptions.
+Allowed statuses are `planned`, `completed`, `completed_with_failures`, `canceled`, and `failed`. `byPlatform` keys are limited to the eight-entry pinned manifest, and every `failuresByCode` map is limited to the stable enum. Report serialization is capped at 256 KiB. Construction plus atomic write receives a 2-second reserved budget; temporary files are removed on failure. If a required report cannot be safely emitted, terminate with stable `REPORT_WRITE_FAILED`, retain only the last valid checkpoint when applicable, and print no raw diagnostics.
 
-## Reserved HTTP contract (TEX-34)
+Reports contain no query, email/handle, provider URL, message, account/profile data, proxy data, credentials, secret references, raw exception, or subprocess output.
 
-https://linear.app/texas/issue/TEX-34/http-ui-dashboard-required may later wrap the same request/report schemas:
+## Release compatibility gate
 
-- `POST /v1/runs` → `202 Accepted` with `{ "runId": "opaque", "statusUrl": "/v1/runs/opaque" }`;
-- `GET /v1/runs/{runId}` → `200` with sanitized state/progress, `404` when unknown, `410` after retention expiry;
-- `POST /v1/runs/{runId}/cancel` → `202` while cancellation is pending;
-- `GET /v1/runs/{runId}/report` → `200` only after a report exists, otherwise `409`.
+Live execution remains disabled until hermetic normalization/omission fixtures pass across the project's supported Python 3.10+ release matrix and a separately approved limited live compatibility probe succeeds. Python 3.10+ is our baseline, not a claim that upstream officially tests those versions.
 
-This status-polling API is reserved, not implemented by TEX-30 or approved by these docs. Authentication, local-only defaults, idempotency keys, storage, and streaming remain TEX-34 decisions.
+## Reserved HTTP contract
 
-## SocialScan compatibility release gate
-
-Before release, maintainers must pin or otherwise identify the supported SocialScan package/API version, document the exact import and result fields, run offline contract fixtures, and perform a separately approved compatibility check. Any upstream API drift closes the gate until mappings and fixtures are reviewed. Python 3.10+ is a release requirement.
+HTTP transport, polling, authentication, and remote idempotency are deferred to https://linear.app/texas/issue/TEX-34/http-ui-dashboard-required. Optional Web3 anchoring remains deferred to https://linear.app/texas/issue/TEX-35/web3-anchoring-hash-only-evm-attestation-optional.
