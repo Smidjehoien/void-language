@@ -65,6 +65,9 @@ describe('HTTP dashboard', () => {
     expect(html).toContain('Safe local executor')
     expect(html).toContain('Download JSON report')
     expect(html).toContain('id="download" href="" download hidden')
+    expect(html).toMatch(
+      /\}\)\.catch\(\(\) => \{\s+if \(runId !== reportRunId\) return\s+download\.hidden = true\s+download\.removeAttribute\('href'\)\s+report\.textContent = 'Report is no longer available\.'\s+\}\)/
+    )
     expect(html).not.toContain(secret)
 
     const createdResponse = await postJson(`${base}/api/runs`, {

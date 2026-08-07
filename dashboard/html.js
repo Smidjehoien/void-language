@@ -75,6 +75,11 @@ export const dashboardHtml = `<!doctype html>
       report.textContent = JSON.stringify(data, null, 2)
       download.href = '/api/runs/' + reportRunId + '/download'
       download.hidden = false
+    }).catch(() => {
+      if (runId !== reportRunId) return
+      download.hidden = true
+      download.removeAttribute('href')
+      report.textContent = 'Report is no longer available.'
     })
   }
   const refresh = () => runId && request('/api/runs/' + runId).then(showRun)
