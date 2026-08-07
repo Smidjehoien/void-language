@@ -19,7 +19,7 @@ TEX-34's shared dashboard core is available as a separate entry point, so the ex
 bun run dashboard
 ```
 
-Open `http://127.0.0.1:3000`. The server binds to loopback by default. Binding to another interface requires an explicit opt-in:
+Open `http://127.0.0.1:3000`. Without explicit opt-in, only the literal loopback addresses `127.0.0.1` and `::1` are accepted; hostnames such as `localhost` are not resolved or trusted. Any other bind requires:
 
 ```sh
 bun run dashboard --host=0.0.0.0 --allow-non-loopback

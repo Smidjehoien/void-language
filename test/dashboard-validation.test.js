@@ -65,4 +65,118 @@ describe('run input validation', () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: 'Request body is too large.' })
   })
+
+  test('uses a valid Content-Length precheck without reading the body', async () => {
+    const app = createDashboardApp()
+    let bodyRead = false
+    const body = new ReadableStream({
+      pull(controller) {
+        bodyRead = true
+        controller.enqueue(new TextEncoder().encode('{}'))
+        controller.close()
+      },
+    }, { highWaterMark: 0 })
+    const response = await app.fetch(
+      new Request('http://localhost/api/runs', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': String(64 * 1024 + 1),
+        },
+        body,
+      })
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Request body is too large.' })
+    expect(bodyRead).toBe(false)
+  })
+
+  test('cancels streaming JSON bodies as soon as the byte limit is exceeded', async () => {
+    const app = createDashboardApp()
+    let canceled = false
+    let thirdChunkRequested = false
+    let chunkIndex = 0
+    const body = new ReadableStream({
+      pull(controller) {
+        chunkIndex += 1
+        if (chunkIndex === 1) controller.enqueue(new Uint8Array(40 * 1024).fill(0x20))
+        else if (chunkIndex === 2) controller.enqueue(new Uint8Array(25 * 1024).fill(0x20))
+        else {
+          thirdChunkRequested = true
+          controller.enqueue(new TextEncoder().encode('PRIVATE_STREAM_CONTENT'))
+        }
+      },
+      cancel() {
+        canceled = true
+      },
+    }, { highWaterMark: 0 })
+
+    const response = await app.fetch(
+      new Request('http://localhost/api/runs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      })
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Request body is too large.' })
+    expect(canceled).toBe(true)
+    expect(thirdChunkRequested).toBe(false)
+  })
+
+  test('decodes valid UTF-8 split across streaming chunks', async () => {
+    const app = createDashboardApp()
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({ handles: ['álïçé'], platforms: ['bluesky'], throttle: 'Safe' })
+    )
+    const split = bytes.indexOf(0xc3) + 1
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, split))
+        controller.enqueue(bytes.slice(split))
+        controller.close()
+      },
+    })
+
+    const response = await app.fetch(
+      new Request('http://localhost/api/runs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      })
+    )
+
+    expect(response.status).toBe(201)
+  })
+
+  test('returns generic errors for absent and errored body streams', async () => {
+    const app = createDashboardApp()
+    const absent = await app.fetch(
+      new Request('http://localhost/api/runs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+    expect(absent.status).toBe(400)
+    expect(await absent.json()).toEqual({ error: 'Request body must contain valid JSON.' })
+
+    const secret = 'PRIVATE_STREAM_ERROR_CONTENT'
+    const errored = await app.fetch(
+      new Request('http://localhost/api/runs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: new ReadableStream({
+          start(controller) {
+            controller.error(new Error(secret))
+          },
+        }),
+      })
+    )
+    const errorText = await errored.text()
+    expect(errored.status).toBe(400)
+    expect(errorText).toContain('Request body must contain valid JSON.')
+    expect(errorText).not.toContain(secret)
+  })
 })

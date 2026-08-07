@@ -58,6 +58,7 @@ export class RunStore {
       finishedAt: null,
       report: null,
       events: [],
+      terminalEventEmitted: false,
       subscribers: new Set(),
       abortController: null,
       approvalTimer: null,
@@ -217,6 +218,9 @@ export class RunStore {
   }
 
   #emit(run, event) {
+    if (run.terminalEventEmitted) return false
+
+    const isTerminalEvent = event.type === 'state' && TERMINAL_STATES.has(event.state)
     const safeEvent = {
       sequence: (run.events.at(-1)?.sequence ?? 0) + 1,
       type: event.type,
@@ -229,8 +233,10 @@ export class RunStore {
       timestamp: new Date().toISOString(),
     }
     run.events.push(safeEvent)
+    if (isTerminalEvent) run.terminalEventEmitted = true
     if (run.events.length > this.maxEvents) run.events.shift()
     for (const listener of run.subscribers) listener(publicEvent(safeEvent))
+    return true
   }
 
   #require(id) {

@@ -20,6 +20,17 @@ describe('HTTP dashboard', () => {
     expect(() => resolveServerOptions(['bun', 'server.js', '--host=0.0.0.0'], {})).toThrow(
       'requires --allow-non-loopback'
     )
+    expect(() => resolveServerOptions(['bun', 'server.js', '--host=localhost'], {})).toThrow(
+      'requires --allow-non-loopback'
+    )
+    expect(resolveServerOptions(['bun', 'server.js', '--host=localhost', '--allow-non-loopback'], {})).toEqual({
+      hostname: 'localhost',
+      port: 3000,
+    })
+    expect(resolveServerOptions(['bun', 'server.js', '--host=::1'], {})).toEqual({
+      hostname: '::1',
+      port: 3000,
+    })
     expect(resolveServerOptions(['bun', 'server.js', '--host=0.0.0.0', '--allow-non-loopback'], {})).toEqual({
       hostname: '0.0.0.0',
       port: 3000,

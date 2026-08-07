@@ -1,6 +1,6 @@
 import { createDashboardApp } from './app.js'
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost'])
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1'])
 
 export const resolveServerOptions = (argv = process.argv, env = process.env) => {
   const hostArg = argv.find((arg) => arg.startsWith('--host='))

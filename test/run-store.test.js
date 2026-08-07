@@ -50,6 +50,35 @@ describe('run lifecycle', () => {
     expect(store.runs.get(running.id).handles).toBeNull()
   })
 
+  test('ignores executor progress after cancellation and emits one terminal event', async () => {
+    let emitAfterCancel
+    const executor = {
+      async execute({ emit }) {
+        emit({ kind: 'started' })
+        await new Promise((resolve) => {
+          emitAfterCancel = () => {
+            emit({ kind: 'finalizing' })
+            emit({ kind: 'platform-checked', platform: 'reddit', completedPlatforms: 1 })
+            resolve()
+          }
+        })
+      },
+    }
+    const store = new RunStore({ executor })
+    const run = store.create({ handles: ['secret'], platforms: ['reddit'], throttle: 'Fast' })
+    store.approve(run.id)
+    expect(store.cancel(run.id).state).toBe('canceled')
+
+    const eventsAtCancellation = store.listEvents(run.id)
+    emitAfterCancel()
+    await Bun.sleep(0)
+    const eventsAfterExecutorSettles = store.listEvents(run.id)
+
+    expect(eventsAfterExecutorSettles).toEqual(eventsAtCancellation)
+    expect(eventsAfterExecutorSettles.filter((event) => event.phase === 'terminal')).toHaveLength(1)
+    expect(eventsAfterExecutorSettles.at(-1).state).toBe('canceled')
+  })
+
   test('bounds events and terminal run retention', async () => {
     const executor = {
       async execute({ emit }) {

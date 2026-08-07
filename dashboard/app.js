@@ -9,20 +9,52 @@ const MAX_REQUEST_BYTES = 64 * 1024
 const json = (value, status = 200, headers = {}) =>
   Response.json(value, { status, headers: { 'cache-control': 'no-store', ...headers } })
 
+const readBodyWithLimit = async (request) => {
+  const reader = request.body?.getReader?.()
+  if (!reader) return new Uint8Array()
+
+  const chunks = []
+  let totalBytes = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
+      totalBytes += chunk.byteLength
+      if (totalBytes > MAX_REQUEST_BYTES) {
+        void reader.cancel().catch(() => {})
+        throw new InputError('Request body is too large.')
+      }
+      chunks.push(chunk)
+    }
+  } catch (error) {
+    if (error instanceof InputError) throw error
+    throw new InputError('Request body must contain valid JSON.')
+  }
+
+  const body = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return body
+}
+
 const parseJson = async (request) => {
   const contentType = request.headers.get('content-type') ?? ''
   if (!contentType.toLowerCase().startsWith('application/json')) {
     throw new InputError('Content-Type must be application/json.')
   }
-  const declaredLength = Number(request.headers.get('content-length'))
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
+  const contentLength = request.headers.get('content-length')
+  if (/^\d+$/.test(contentLength ?? '') && BigInt(contentLength) > BigInt(MAX_REQUEST_BYTES)) {
     throw new InputError('Request body is too large.')
   }
   try {
-    const text = await request.text()
-    if (new TextEncoder().encode(text).byteLength > MAX_REQUEST_BYTES) {
-      throw new InputError('Request body is too large.')
-    }
+    const bytes = await readBodyWithLimit(request)
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
     return JSON.parse(text)
   } catch (error) {
     if (error instanceof InputError) throw error
