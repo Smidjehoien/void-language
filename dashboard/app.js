@@ -7,7 +7,21 @@ import { InputError, validateApprovalInput, validateRunInput } from './validatio
 const MAX_REQUEST_BYTES = 64 * 1024
 
 const json = (value, status = 200, headers = {}) =>
-  Response.json(value, { status, headers: { 'cache-control': 'no-store', ...headers } })
+  Response.json(value, {
+    status,
+    headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...headers },
+  })
+
+const reportDownload = (report) =>
+  new Response(JSON.stringify(report), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': `attachment; filename="void-report-${report.runId}.json"`,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
+  })
 
 const readBodyWithLimit = async (request) => {
   const reader = request.body?.getReader?.()
@@ -112,6 +126,11 @@ export const createDashboardApp = ({ executor = new LocalSafeExecutor(), store }
           return json(runStore.getReport(reportId), 200, {
             'content-type': 'application/json; charset=utf-8',
           })
+        }
+
+        const downloadId = routeId(url.pathname, 'download')
+        if (request.method === 'GET' && downloadId) {
+          return reportDownload(runStore.getReport(downloadId))
         }
 
         const eventsId = routeId(url.pathname, 'events')

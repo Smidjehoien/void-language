@@ -57,6 +57,7 @@ export class RunStore {
       startedAt: null,
       finishedAt: null,
       report: null,
+      terminalReason: null,
       events: [],
       terminalEventEmitted: false,
       subscribers: new Set(),
@@ -66,7 +67,7 @@ export class RunStore {
     this.runs.set(run.id, run)
     run.approvalTimer = setTimeout(() => {
       if (run.state === 'pending_approval') {
-        this.#finish(run, 'canceled', 'Run approval expired. Execution inputs were cleared.')
+        this.#finish(run, 'canceled', 'Run approval expired. Execution inputs were cleared.', 'expired')
       }
     }, this.approvalTtlMs)
     run.approvalTimer.unref?.()
@@ -112,13 +113,27 @@ export class RunStore {
       throw this.#conflict('Terminal runs cannot be canceled.')
     }
     run.abortController?.abort()
-    this.#finish(run, 'canceled', 'Run canceled. Execution inputs were cleared.')
+    this.#finish(run, 'canceled', 'Run canceled. Execution inputs were cleared.', 'canceled')
     return publicRun(run)
   }
 
   getReport(id) {
     const run = this.#require(id)
     if (run.state !== 'completed' || !run.report) {
+      if (run.state === 'canceled') {
+        const error = new Error(
+          run.terminalReason === 'expired'
+            ? 'Report is unavailable because run approval expired.'
+            : 'Report is unavailable because the run was canceled.'
+        )
+        error.status = 410
+        throw error
+      }
+      if (run.state === 'failed') {
+        const error = new Error('Report is unavailable because the run failed.')
+        error.status = 422
+        throw error
+      }
       throw this.#conflict('Report is available only after completion.')
     }
     return structuredClone(run.report)
@@ -164,16 +179,17 @@ export class RunStore {
         summary:
           'No external collection was performed. This deterministic local executor validates workflow behavior only.',
       }
-      this.#finish(run, 'completed', 'Run completed with a sanitized aggregate report.')
+      this.#finish(run, 'completed', 'Run completed with a sanitized aggregate report.', 'completed')
     } catch (error) {
       if (error?.name === 'AbortError' || run.state === 'canceled') return
-      this.#finish(run, 'failed', 'Run failed without exposing execution inputs.')
+      this.#finish(run, 'failed', 'Run failed without exposing execution inputs.', 'failed')
     }
   }
 
-  #finish(run, state, message) {
+  #finish(run, state, message, terminalReason) {
     if (TERMINAL_STATES.has(run.state)) return
     run.state = state
+    run.terminalReason = terminalReason
     run.finishedAt = new Date().toISOString()
     clearTimeout(run.approvalTimer)
     run.approvalTimer = null

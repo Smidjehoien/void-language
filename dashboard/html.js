@@ -12,7 +12,7 @@ export const dashboardHtml = `<!doctype html>
     section { background: #1b1f2a; border: 1px solid #333948; border-radius: 12px; padding: 1rem; margin: 1rem 0; }
     label { display: block; margin: .75rem 0; } input, select, button { font: inherit; }
     textarea { width: 100%; min-height: 7rem; box-sizing: border-box; }
-    button { padding: .6rem .9rem; margin-right: .4rem; cursor: pointer; }
+    button, .button { display: inline-block; padding: .6rem .9rem; margin-right: .4rem; cursor: pointer; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #0d0f14; padding: 1rem; border-radius: 8px; }
     .warning { border-left: 4px solid #e6aa3b; padding-left: .75rem; }
   </style>
@@ -39,13 +39,18 @@ export const dashboardHtml = `<!doctype html>
     <pre id="status">No run created.</pre>
   </section>
   <section><h2>Sanitized live status</h2><pre id="events">No events.</pre></section>
-  <section><h2>Aggregate report</h2><pre id="report">Available on screen after completion.</pre></section>
+  <section>
+    <h2>Aggregate report</h2>
+    <pre id="report">Available on screen after completion.</pre>
+    <a class="button" id="download" href="" download hidden>Download JSON report</a>
+  </section>
 <script type="module">
   let runId = null
   let source = null
   const status = document.querySelector('#status')
   const events = document.querySelector('#events')
   const report = document.querySelector('#report')
+  const download = document.querySelector('#download')
   const actions = document.querySelector('#actions')
   const approve = document.querySelector('#approve')
 
@@ -59,7 +64,18 @@ export const dashboardHtml = `<!doctype html>
     status.textContent = JSON.stringify(run, null, 2)
     actions.hidden = ['completed', 'canceled', 'failed'].includes(run.state)
     approve.hidden = run.state !== 'pending_approval'
-    if (run.reportAvailable) request('/api/runs/' + run.id + '/report').then((data) => { report.textContent = JSON.stringify(data, null, 2) })
+    if (!run.reportAvailable) {
+      download.hidden = true
+      download.removeAttribute('href')
+      return
+    }
+    const reportRunId = run.id
+    request('/api/runs/' + reportRunId + '/report').then((data) => {
+      if (runId !== reportRunId) return
+      report.textContent = JSON.stringify(data, null, 2)
+      download.href = '/api/runs/' + reportRunId + '/download'
+      download.hidden = false
+    })
   }
   const refresh = () => runId && request('/api/runs/' + runId).then(showRun)
 
@@ -81,6 +97,9 @@ export const dashboardHtml = `<!doctype html>
       }
       events.textContent = ''
       report.textContent = 'Available on screen after completion.'
+      download.hidden = true
+      download.removeAttribute('href')
+      document.querySelector('#handles').value = ''
       document.querySelector('#ethics').checked = false
       showRun(run)
     } catch (error) { status.textContent = error.message }
