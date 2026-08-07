@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "bun index.js"
+    "start": "bun index.js",
+    "dashboard": "bun dashboard/server.js",
+    "test": "bun test"
   },
   "dependencies": {
     "openai": "3.3.0",
