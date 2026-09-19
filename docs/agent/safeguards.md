@@ -33,7 +33,7 @@ Retries use bounded `Retry-After`, capped exponential backoff with jitter, and p
 
 The only v1 integration candidate is `socialscan==2.0.1`, commit/tag `7373757e616cbe5a56e1a67b9a39e3ae67bcb2a8`, wheel SHA-256 `be3075208c6e1dc577869ed27ca37fb1ad14d95e37641fc85d5c09f307e93be3`. Its eight allowlisted platform IDs are `github`, `gitlab`, `instagram`, `pinterest`, `reddit`, `twitter`, `tumblr`, and `firefox`.
 
-The bridge calls `await execute_queries([query], [platform])` for one unit and never calls `sync_execute_queries` from its active event loop. It classifies only pinned fields and never emits raw `query`, `message`, or `link`. `invalid` is distinct; omitted or inconclusive results are `unknown`.
+The bridge imports `Platforms` and calls `await execute_queries([query], [platform_member])` for one unit after resolving the validated lower-case platform ID to its `Platforms` enum member; it never calls `sync_execute_queries` from its active event loop. It classifies only pinned fields and never emits raw `query`, `message`, or `link`. `invalid` is distinct; omitted or inconclusive results are `unknown`.
 
 Live execution is blocked until hermetic fixtures pass across supported Python 3.10+ versions and a separately approved limited live compatibility probe succeeds. Python 3.10+ is our release baseline, not an upstream testing guarantee. Automated live-provider CI/tests remain prohibited.
 
