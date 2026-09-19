@@ -14,16 +14,96 @@ permissions:
 jobs:
   cla:
     # SECURITY NOTE: This workflow runs with `pull_request_target` + write permissions.
-    # Any update to the pinned SHA below requires explicit review of the referenced workflow to ensure it
-    # remains metadata-only (no `actions/checkout`, no shell steps).
-    # Source: Smidjehoien/.github/.github/workflows/cla-mark.yml @ 984cf2944d68fc095d136e198b16aff70a50c3ac
-    # To update: bump the SHA after reviewing changes in the source repo.
-    uses: Smidjehoien/.github/.github/workflows/cla-mark.yml@984cf2944d68fc095d136e198b16aff70a50c3ac
-    with:
-      cover_org_members: true
-      cover_collaborators: true
-      # Users covered by policy (maintainers / automation). Keep this in sync with org policy.
-      # Update this list whenever maintainer/automation accounts change.
-      # Format: comma-separated GitHub usernames with no spaces.
-      allowlist_users: 'cosmicjesterx,charliehelps,charliecreates[bot]'
-      create_missing_labels: true
+    # Keep this job metadata-only: no `actions/checkout` and no shell steps that execute PR code.
+    name: Mark CLA status
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate and label PR
+        uses: actions/github-script@v7
+        env:
+          LABEL_COVERED: 'CLA: covered'
+          LABEL_REVIEW: 'CLA: review'
+          COVER_ORG_MEMBERS: 'true'
+          COVER_COLLABORATORS: 'true'
+          CREATE_MISSING_LABELS: 'true'
+          # Users covered by policy (maintainers / automation). Keep this in sync with org policy.
+          # Update this list whenever maintainer/automation accounts change.
+          # Format: comma-separated GitHub usernames with no spaces.
+          ALLOWLIST_USERS: cosmicjesterx,charliehelps,charliecreates[bot]
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed('This workflow must be triggered from a pull_request* event.');
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = pr.number;
+
+            const labelCovered = process.env.LABEL_COVERED;
+            const labelReview = process.env.LABEL_REVIEW;
+            const coverOrgMembers = process.env.COVER_ORG_MEMBERS === 'true';
+            const coverCollaborators = process.env.COVER_COLLABORATORS === 'true';
+            const shouldCreateMissingLabels = process.env.CREATE_MISSING_LABELS === 'true';
+
+            const allowlistedUsernames = (process.env.ALLOWLIST_USERS || '')
+              .split(/[\s,]+/)
+              .filter(Boolean)
+              .map((username) => username.toLowerCase());
+
+            const prAuthor = pr.user?.login || '';
+            const association = (pr.author_association || '').toUpperCase();
+
+            const isAllowlistedAuthor = allowlistedUsernames.includes(prAuthor.toLowerCase());
+            const isOrgMemberAuthor = coverOrgMembers && ['MEMBER', 'OWNER'].includes(association);
+            const isCollaborator = coverCollaborators && association === 'COLLABORATOR';
+            const isClaCovered = isAllowlistedAuthor || isOrgMemberAuthor || isCollaborator;
+
+            core.info(`PR #${issue_number} by @${prAuthor} (association=${association}) -> covered=${isClaCovered}`);
+
+            if (shouldCreateMissingLabels) {
+              async function ensureLabel(name, color, description) {
+                try {
+                  await github.rest.issues.getLabel({ owner, repo, name });
+                } catch (error) {
+                  if (error.status === 404) {
+                    await github.rest.issues.createLabel({ owner, repo, name, color, description });
+                  } else {
+                    throw error;
+                  }
+                }
+              }
+
+              await Promise.all([
+                ensureLabel(labelCovered, '2ea44f', 'Contributor License Agreement is considered covered'),
+                ensureLabel(labelReview, '9a9a9a', 'CLA status requires manual review')
+              ]);
+            }
+
+            const desiredLabel = isClaCovered ? labelCovered : labelReview;
+            const oppositeLabel = isClaCovered ? labelReview : labelCovered;
+
+            try {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number, name: oppositeLabel });
+            } catch (error) {
+              if (error.status !== 404) {
+                core.warning(`Could not remove label '${oppositeLabel}': ${error.message}`);
+              }
+            }
+
+            await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [desiredLabel] });
+
+            await core.summary
+              .addHeading('CLA marker')
+              .addTable([
+                [{ data: 'PR', header: true }, { data: `#${issue_number}`, header: false }],
+                ['Author', `@${prAuthor}`],
+                ['Association', association],
+                ['Allowlisted users', allowlistedUsernames.join(', ') || '(none)'],
+                ['Treat org members as covered', String(coverOrgMembers)],
+                ['Treat collaborators as covered', String(coverCollaborators)],
+                ['Result', desiredLabel],
+              ])
+              .write();
