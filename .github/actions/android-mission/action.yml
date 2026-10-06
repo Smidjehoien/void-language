@@ -1,0 +1,22 @@
+name: Android mission
+description: Local-only mission runner that prints a playful android persona report (no network calls).
+
+inputs:
+  mission:
+    description: Mission JSON (string). Mutually exclusive with mission_file.
+    required: false
+  mission_file:
+    description: Path to a mission JSON file. Mutually exclusive with mission.
+    required: false
+
+outputs:
+  status:
+    description: ok | error
+  mission_id:
+    description: Mission identifier (from the mission payload)
+  summary:
+    description: One-line mission summary
+
+runs:
+  using: node20
+  main: index.js

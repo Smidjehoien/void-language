@@ -1,0 +1,9 @@
+{
+  "mission_id": "DEMO-001",
+  "objective": "Perform a local-only boot sequence and report readiness.",
+  "steps": [
+    "Initialize sensors (simulated)",
+    "Run self-check (simulated)",
+    "Transmit status report (local log output only)"
+  ]
+}
